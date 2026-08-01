@@ -13,7 +13,15 @@ export const serverEnvSchema = z.object({
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
 let cached: ServerEnv | undefined;
+export function resolveDatabaseUrl(environment: NodeJS.ProcessEnv) {
+  // `next dev` must use the explicitly configured development database.
+  // Tests deliberately continue to use DATABASE_URL/TEST_DATABASE_URL so an
+  // integration run can never be redirected to DEV by an ambient .env value.
+  return environment.NODE_ENV === "development" && environment.DEV_DATABASE_URL
+    ? environment.DEV_DATABASE_URL
+    : environment.DATABASE_URL;
+}
 export function getServerEnv(): ServerEnv {
-  cached ??= serverEnvSchema.parse(process.env);
+  cached ??= serverEnvSchema.parse({ ...process.env, DATABASE_URL: resolveDatabaseUrl(process.env) });
   return cached;
 }

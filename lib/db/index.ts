@@ -1,12 +1,12 @@
 import { drizzle } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
 import * as schema from "./schema";
+import { getServerEnv } from "@/lib/env";
 
 const globalForDb = globalThis as unknown as { mysqlPool?: mysql.Pool };
 
 function createPool() {
-  const uri = process.env.DATABASE_URL;
-  if (!uri) throw new Error("DATABASE_URL is required");
+  const uri = getServerEnv().DATABASE_URL;
   return mysql.createPool({ uri, connectionLimit: 10, timezone: "Z", enableKeepAlive: true });
 }
 
