@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertNoHierarchyCycle, assetArchiveSchema, assetListQuerySchema, assetMutationSchema, normalizeLegacyAssetStatus } from "../lib/assets/validation";
+import { assertNoHierarchyCycle, assetArchiveSchema, assetHierarchyLinkSchema, assetListQuerySchema, assetMutationSchema, assetSparePartLinkSchema, normalizeLegacyAssetStatus } from "../lib/assets/validation";
 import { assetSchema } from "../lib/maintenance/validation";
 
 const typeId = "11111111-1111-4111-8111-111111111111";
@@ -41,5 +41,11 @@ describe("asset management baseline", () => {
     expect(parsed).toMatchObject({ code: "PUMP-02", maintenanceInterval: null, costCenterLegacyId: null });
     expect(assetArchiveSchema.parse({ reason: "Asset permanently decommissioned" }).reason).toContain("decommissioned");
     expect(() => assetArchiveSchema.parse({ reason: "" })).toThrow();
+  });
+
+  it("validates editable hierarchy and spare-part links", () => {
+    expect(assetHierarchyLinkSchema.parse({ assetId, sequence: "20", quantity: "2.5", enabled: true, note: "Standby" })).toMatchObject({ sequence: 20, quantity: 2.5 });
+    expect(assetSparePartLinkSchema.parse({ sparePartId: assetId, sequence: 10, requiredQuantity: 3, enabled: false })).toMatchObject({ requiredQuantity: 3, enabled: false });
+    expect(assetHierarchyLinkSchema.safeParse({ assetId, sequence: 10, quantity: 0, enabled: true }).success).toBe(false);
   });
 });

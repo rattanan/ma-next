@@ -1,31 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { completionSchema, executionEntrySchema, notificationReviewSchema, notificationSchema, taskSchema, verificationSchema } from "../../lib/maintenance/validation";
-import { completeNotification, convertNotificationToWorkOrder, transitionNotification, transitionTask, transitionWorkOrder } from "../../lib/maintenance/workflow";
+import { completionRevisionSchema, managerCompletionDecisionSchema, operatorDecisionSchema } from "../../lib/maintenance/validation";
+import { transitionNotification, transitionWorkOrder } from "../../lib/maintenance/workflow";
+const actor = (id: string, permissions: string[]) => ({ id, permissions: permissions as never[] });
 
-describe("E2E corrective maintenance flow", () => {
-  it("reports, approves/converts, executes, verifies, and closes through commands", () => {
-    const reporter = { id: "reporter", permissions: ["CREATE_MAINTENANCE_NOTIFICATION"] as never[] };
-    const technician = { id: "technician", permissions: ["EXECUTE_WORK_ORDERS"] as never[] };
-    const supervisor = { id: "supervisor", permissions: ["REVIEW_MAINTENANCE_NOTIFICATION", "MANAGE_WORK_ORDERS", "VERIFY_WORK_ORDERS", "CLOSE_WORK_ORDERS"] as never[] };
-    const notification = notificationSchema.parse({ assetId: "11111111-1111-4111-8111-111111111111", title: "Pump seal leak", description: "Seal leak observed while pump remains degraded", priority: "HIGH", severity: "MAJOR", equipmentOperatingStatus: "DEGRADED", photoAttachmentIds: [] });
-    expect(notification.type).toBe("CORRECTIVE"); expect(reporter.permissions).toContain("CREATE_MAINTENANCE_NOTIFICATION");
-    const review = notificationReviewSchema.parse({ decision: "APPROVED", note: "Repair during current shift", assignedTo: "22222222-2222-4222-8222-222222222222" });
-    const notificationStatus = transitionNotification("NEW", "APPROVE", { actor: supervisor, assignedTo: review.assignedTo, note: review.note });
-    let orderStatus = convertNotificationToWorkOrder(notificationStatus, supervisor, { assignedTo: review.assignedTo });
-    orderStatus = transitionWorkOrder(orderStatus, "START", { actor: technician, assignedTo: review.assignedTo });
-    orderStatus = transitionWorkOrder(orderStatus, "BACKLOG", { actor: technician, backlogReason: "Awaiting isolation permit" });
-    orderStatus = transitionWorkOrder(orderStatus, "RESUME", { actor: technician, note: "Isolation permit issued" });
-    orderStatus = transitionWorkOrder(orderStatus, "START", { actor: technician, assignedTo: review.assignedTo });
-    const jobStep = taskSchema.parse({ title: "Isolate and replace seal", kind: "JOB_STEP", required: true });
-    const checklist = taskSchema.parse({ title: "Confirm guards fitted", kind: "CHECKLIST", required: true });
-    const taskStates = [transitionTask("OPEN", "COMPLETED", technician), transitionTask("OPEN", "COMPLETED", technician)];
-    expect([jobStep.kind, checklist.kind]).toEqual(["JOB_STEP", "CHECKLIST"]);
-    expect(executionEntrySchema.parse({ description: "Seal replaced and aligned", minutesSpent: 90, overtimeMinutes: 30, overtimeMultiplier: 1.5, actionAt: new Date().toISOString() }).overtimeMinutes).toBe(30);
-    const completion = completionSchema.parse({ result: "Restored", solution: "Replaced mechanical seal", durationMinutes: 120, beforePhotoAttachmentIds: [], afterPhotoAttachmentIds: [] });
-    orderStatus = transitionWorkOrder(orderStatus, "SUBMIT_COMPLETION", { actor: technician, requiredTasks: taskStates.map((status) => ({ required: true, status })) });
-    const verification = verificationSchema.parse({ completionId: "33333333-3333-4333-8333-333333333333", decision: "VERIFIED", note: "Stable after operational test" });
-    orderStatus = transitionWorkOrder(orderStatus, "VERIFY", { actor: supervisor, completionExists: Boolean(completion), completionOwnerId: technician.id, note: verification.note });
-    orderStatus = transitionWorkOrder(orderStatus, "CLOSE", { actor: supervisor, note: "Closed after supervisor verification" });
-    expect({ notification: completeNotification(notificationStatus, supervisor), workOrder: orderStatus }).toEqual({ notification: "COMPLETED", workOrder: "CLOSED" });
+describe("E2E governed corrective maintenance flow", () => {
+  it("requires technician revision, manager approval, operator acceptance, manager WO close, and operator Notification close", () => {
+    const operator = actor("operator", ["NOTIFICATION_SUBMIT", "NOTIFICATION_ACCEPT_WORK", "NOTIFICATION_CLOSE"]); const manager = actor("manager", ["NOTIFICATION_REVIEW", "NOTIFICATION_APPROVE", "WORK_ORDER_CREATE", "WORK_ORDER_ASSIGN", "WORK_ORDER_REVIEW_COMPLETION", "WORK_ORDER_APPROVE_COMPLETION", "WORK_ORDER_CLOSE"]); const technician = actor("tech", ["WORK_ORDER_ACCEPT_ASSIGNMENT", "WORK_ORDER_START", "WORK_ORDER_SUBMIT_COMPLETION"]);
+    let notification = transitionNotification("DRAFT", "SUBMIT", { actor: operator }); notification = transitionNotification(notification, "START_REVIEW", { actor: manager }); notification = transitionNotification(notification, "APPROVE", { actor: manager }); notification = transitionNotification(notification, "START_MAINTENANCE", { actor: manager });
+    let order = transitionWorkOrder("CREATED", "ASSIGN", { actor: manager }); order = transitionWorkOrder(order, "ACCEPT_ASSIGNMENT", { actor: technician, assignedTo: "tech" }); order = transitionWorkOrder(order, "START", { actor: technician, assignedTo: "tech" });
+    const revision = completionRevisionSchema.parse({ diagnosis: "Failed bearing", rootCause: "Lubrication loss", correctiveAction: "Replaced bearing", workSummary: "Pump restored", laborMinutes: 90, partsFinalized: true, testProcedure: "Run at rated load", testResult: "Passed", beforePhotoAttachmentIds: [], afterPhotoAttachmentIds: [] });
+    order = transitionWorkOrder(order, "SUBMIT_COMPLETION", { actor: technician, assignedTo: "tech", requiredTasks: [] }); order = transitionWorkOrder(order, "BEGIN_MANAGER_REVIEW", { actor: manager }); expect(managerCompletionDecisionSchema.parse({ decision: "APPROVE", comment: "Evidence accepted" }).decision).toBe("APPROVE"); order = transitionWorkOrder(order, "APPROVE_COMPLETION", { actor: manager, completionExists: Boolean(revision), completionOwnerId: "tech" }); order = transitionWorkOrder(order, "REQUEST_OPERATOR_ACCEPTANCE", { actor: manager }); notification = transitionNotification(notification, "REQUEST_OPERATOR_ACCEPTANCE", { actor: manager });
+    expect(operatorDecisionSchema.parse({ decision: "ACCEPT", comment: "Machine is stable" }).decision).toBe("ACCEPT"); order = transitionWorkOrder(order, "OPERATOR_ACCEPT", { actor: operator }); notification = transitionNotification(notification, "OPERATOR_ACCEPT", { actor: operator }); order = transitionWorkOrder(order, "CLOSE", { actor: manager, note: "Closed", operatorAcceptanceExists: true }); notification = transitionNotification(notification, "WORK_ORDERS_CLOSED", { actor: manager, allWorkOrdersClosed: true }); notification = transitionNotification(notification, "CLOSE", { actor: operator, note: "Final confirmation", allWorkOrdersClosed: true });
+    expect({ order, notification }).toEqual({ order: "CLOSED", notification: "CLOSED" });
   });
 });

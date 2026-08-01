@@ -1,22 +1,22 @@
 import { describe, expect, it } from "vitest";
+import { rolePermissions } from "../lib/auth/permissions";
 import { transitionNotification, transitionWorkOrder } from "../lib/maintenance/workflow";
 
-describe("corrective maintenance transition permissions", () => {
-  const actor = (permissions: string[]) => ({ id: "actor", permissions: permissions as never[] });
-
-  it("requires reviewer permission for approve, backlog, and reject", () => {
-    for (const action of ["APPROVE", "BACKLOG", "REJECT"] as const) expect(() => transitionNotification("NEW", action, { actor: actor([]), assignedTo: "tech", note: "Decision note", backlogReason: "Awaiting outage" })).toThrow("REVIEW_MAINTENANCE_NOTIFICATION");
+const actor = (id: string, permissions: string[]) => ({ id, permissions: permissions as never[] });
+describe("governed maintenance permissions", () => {
+  it("keeps operational duties separated", () => {
+    expect(rolePermissions.OPERATOR.has("WORK_ORDER_ASSIGN")).toBe(false);
+    expect(rolePermissions.TECHNICIAN.has("WORK_ORDER_CLOSE")).toBe(false);
+    expect(rolePermissions.TECHNICIAN.has("WORK_ORDER_APPROVE_COMPLETION")).toBe(false);
+    expect(rolePermissions.MAINTENANCE_MANAGER.has("WORK_ORDER_ASSIGN")).toBe(true);
+    expect(rolePermissions.MAINTENANCE_MANAGER.has("WORK_ORDER_RETURN_FOR_RECHECK")).toBe(true);
   });
-
-  it.each([
-    ["OPEN", "START", "EXECUTE_WORK_ORDERS"],
-    ["OPEN", "BACKLOG", "EXECUTE_WORK_ORDERS"],
-    ["BACKLOG", "RESUME", "EXECUTE_WORK_ORDERS"],
-    ["IN_PROGRESS", "SUBMIT_COMPLETION", "EXECUTE_WORK_ORDERS"],
-    ["COMPLETION_PENDING", "VERIFY", "VERIFY_WORK_ORDERS"],
-    ["VERIFIED", "CLOSE", "CLOSE_WORK_ORDERS"],
-  ] as const)("protects %s → %s with %s", (status, action, permission) => {
-    const context = { actor: actor([]), assignedTo: "tech", requiredTasks: [], completionExists: true, completionOwnerId: "other", note: "Required note", backlogReason: "Required backlog reason" };
-    expect(() => transitionWorkOrder(status, action, context)).toThrow(permission);
+  it("blocks direct permission bypasses", () => {
+    expect(() => transitionWorkOrder("CREATED", "ASSIGN", { actor: actor("operator", ["NOTIFICATION_CREATE"]) })).toThrow("WORK_ORDER_ASSIGN");
+    expect(() => transitionWorkOrder("OPERATOR_ACCEPTED", "CLOSE", { actor: actor("tech", ["WORK_ORDER_SUBMIT_COMPLETION"]), operatorAcceptanceExists: true })).toThrow("WORK_ORDER_CLOSE");
+    expect(() => transitionNotification("UNDER_REVIEW", "APPROVE", { actor: actor("operator", ["NOTIFICATION_SUBMIT"]) })).toThrow("NOTIFICATION_APPROVE");
+  });
+  it("prevents a technician approving their own revision", () => {
+    expect(() => transitionWorkOrder("UNDER_MANAGER_REVIEW", "APPROVE_COMPLETION", { actor: actor("tech", ["WORK_ORDER_APPROVE_COMPLETION"]), completionExists: true, completionOwnerId: "tech" })).toThrow("cannot review their own");
   });
 });

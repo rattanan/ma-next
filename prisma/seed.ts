@@ -11,7 +11,14 @@ const permissionDefinitions = [
   ["MANAGE_USERS", "Manage users", "IDENTITY"], ["VIEW_LOGIN_HISTORY", "View login history", "IDENTITY"], ["VIEW_AUDIT_LOGS", "View audit logs", "AUDIT"],
   ["VIEW_MAINTENANCE", "View maintenance", "MAINTENANCE"], ["CREATE_MAINTENANCE_NOTIFICATION", "Report maintenance", "MAINTENANCE"], ["REVIEW_MAINTENANCE_NOTIFICATION", "Review maintenance notification", "MAINTENANCE"], ["MANAGE_WORK_ORDERS", "Manage work orders", "MAINTENANCE"], ["EXECUTE_WORK_ORDERS", "Execute work orders", "MAINTENANCE"], ["VERIFY_WORK_ORDERS", "Verify work orders", "MAINTENANCE"], ["CLOSE_WORK_ORDERS", "Close work orders", "MAINTENANCE"],
   ["ASSET_READ", "View asset register and detail", "ASSETS"], ["ASSET_CREATE", "Create assets", "ASSETS"], ["ASSET_UPDATE", "Update assets", "ASSETS"], ["ASSET_ARCHIVE", "Archive assets", "ASSETS"], ["ASSET_HIERARCHY_MANAGE", "Manage asset hierarchy", "ASSETS"], ["ASSET_CUSTOM_FIELDS_MANAGE", "Manage asset custom fields", "ASSETS"],
+  ...["NOTIFICATION_CREATE", "NOTIFICATION_EDIT_OWN_DRAFT", "NOTIFICATION_SUBMIT", "NOTIFICATION_VIEW", "NOTIFICATION_REVIEW", "NOTIFICATION_REQUEST_INFORMATION", "NOTIFICATION_REJECT", "NOTIFICATION_APPROVE", "NOTIFICATION_ACCEPT_WORK", "NOTIFICATION_REJECT_WORK", "NOTIFICATION_CLOSE", "WORK_ORDER_CREATE", "WORK_ORDER_VIEW", "WORK_ORDER_ASSIGN", "WORK_ORDER_REASSIGN", "WORK_ORDER_ACCEPT_ASSIGNMENT", "WORK_ORDER_START", "WORK_ORDER_UPDATE_PROGRESS", "WORK_ORDER_SUBMIT_COMPLETION", "WORK_ORDER_REVIEW_COMPLETION", "WORK_ORDER_APPROVE_COMPLETION", "WORK_ORDER_RETURN_FOR_RECHECK", "WORK_ORDER_CLOSE", "WORK_ORDER_OVERRIDE_WARNING", "AUDIT_VIEW", "USER_MANAGE", "ROLE_MANAGE"].map((code) => [code, code.toLowerCase().replaceAll("_", " "), code.startsWith("NOTIFICATION") ? "MAINTENANCE_NOTIFICATION" : code.startsWith("WORK_ORDER") ? "WORK_ORDER" : "GOVERNANCE"] as const),
 ] as const;
+
+const workflowRoles: Record<string, readonly string[]> = {
+  OPERATOR: ["VIEW_MAINTENANCE", "ASSET_READ", "VIEW_ATTACHMENTS", "NOTIFICATION_CREATE", "NOTIFICATION_EDIT_OWN_DRAFT", "NOTIFICATION_SUBMIT", "NOTIFICATION_VIEW", "NOTIFICATION_ACCEPT_WORK", "NOTIFICATION_REJECT_WORK", "NOTIFICATION_CLOSE", "WORK_ORDER_VIEW", "AUDIT_VIEW"],
+  MAINTENANCE_MANAGER: ["VIEW_MAINTENANCE", "ASSET_READ", "VIEW_ATTACHMENTS", "MANAGE_ATTACHMENTS", "NOTIFICATION_CREATE", "NOTIFICATION_EDIT_OWN_DRAFT", "NOTIFICATION_SUBMIT", "NOTIFICATION_VIEW", "NOTIFICATION_REVIEW", "NOTIFICATION_REQUEST_INFORMATION", "NOTIFICATION_REJECT", "NOTIFICATION_APPROVE", "WORK_ORDER_CREATE", "WORK_ORDER_VIEW", "WORK_ORDER_ASSIGN", "WORK_ORDER_REASSIGN", "WORK_ORDER_UPDATE_PROGRESS", "WORK_ORDER_REVIEW_COMPLETION", "WORK_ORDER_APPROVE_COMPLETION", "WORK_ORDER_RETURN_FOR_RECHECK", "WORK_ORDER_CLOSE", "AUDIT_VIEW"],
+  TECHNICIAN: ["VIEW_MAINTENANCE", "ASSET_READ", "VIEW_ATTACHMENTS", "MANAGE_ATTACHMENTS", "NOTIFICATION_VIEW", "WORK_ORDER_VIEW", "WORK_ORDER_ACCEPT_ASSIGNMENT", "WORK_ORDER_START", "WORK_ORDER_UPDATE_PROGRESS", "WORK_ORDER_SUBMIT_COMPLETION", "AUDIT_VIEW"],
+};
 
 function options(url: string) { const value = new URL(url); return { host: value.hostname, port: Number(value.port || 3306), user: decodeURIComponent(value.username), password: decodeURIComponent(value.password), database: value.pathname.replace(/^\//, ""), connectionLimit: 5 }; }
 async function main() {
@@ -22,6 +29,10 @@ async function main() {
     const allPermissions = await prisma.permission.findMany();
     const adminRole = await prisma.role.upsert({ where: { code: "ADMIN" }, update: { active: true }, create: { code: "ADMIN", name: "Administrator", description: "Full platform administration", system: true } });
     await prisma.rolePermission.createMany({ data: allPermissions.map((permission) => ({ roleId: adminRole.id, permissionId: permission.id })), skipDuplicates: true });
+    for (const [roleCode, permissionCodes] of Object.entries(workflowRoles)) {
+      const role = await prisma.role.upsert({ where: { code: roleCode }, update: { active: true }, create: { code: roleCode, name: roleCode === "MAINTENANCE_MANAGER" ? "Maintenance Manager" : roleCode[0] + roleCode.slice(1).toLowerCase(), system: true } });
+      await prisma.rolePermission.createMany({ data: allPermissions.filter((permission) => permissionCodes.includes(permission.code)).map((permission) => ({ roleId: role.id, permissionId: permission.id })), skipDuplicates: true });
+    }
     const email = (process.env.SEED_ADMIN_EMAIL || "admin@example.test").trim().toLowerCase();
     const suppliedPassword = process.env.SEED_ADMIN_PASSWORD;
     if (process.env.NODE_ENV === "production" && !suppliedPassword) throw new Error("SEED_ADMIN_PASSWORD is required in production");

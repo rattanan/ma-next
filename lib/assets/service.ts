@@ -15,11 +15,13 @@ import type { RequestMeta } from "@/lib/auth/request";
 import { createNotification } from "@/lib/notifications/service";
 import { logger } from "@/lib/logger";
 import type { z } from "zod";
-import type { assetListQuerySchema, assetMutationSchema } from "./validation";
+import type { assetHierarchyLinkSchema, assetListQuerySchema, assetMutationSchema, assetSparePartLinkSchema } from "./validation";
 import { assertNoHierarchyCycle } from "./validation";
 
 type AssetFilters = z.infer<typeof assetListQuerySchema>;
 type AssetMutation = z.infer<typeof assetMutationSchema>;
+type HierarchyLinkMutation = z.infer<typeof assetHierarchyLinkSchema>;
+type SparePartLinkMutation = z.infer<typeof assetSparePartLinkSchema>;
 
 const assetSelection = {
   id: assets.id, code: assets.code, name: assets.name, description: assets.description,
@@ -33,11 +35,12 @@ const assetSelection = {
 function contains(value: unknown, query: string) { return String(value ?? "").toLocaleLowerCase().includes(query); }
 
 export async function listAssets(filters: AssetFilters) {
-  const [rows, customRows, types, categories] = await Promise.all([
+  const [rows, customRows, types, categories, parts] = await Promise.all([
     db.select(assetSelection).from(assets).innerJoin(assetTypes, eq(assets.assetTypeId, assetTypes.id)).leftJoin(assetCategories, eq(assets.assetCategoryId, assetCategories.id)).orderBy(asc(assets.code)),
     filters.q ? db.select({ assetId: assetCustomFieldValues.assetId, value: assetCustomFieldValues.value }).from(assetCustomFieldValues) : Promise.resolve([]),
     db.select({ id: assetTypes.id, code: assetTypes.code, name: assetTypes.name }).from(assetTypes).where(eq(assetTypes.active, true)).orderBy(asc(assetTypes.name)),
     db.select({ id: assetCategories.id, code: assetCategories.code, name: assetCategories.name }).from(assetCategories).where(eq(assetCategories.active, true)).orderBy(asc(assetCategories.name)),
+    db.select({ id: spareParts.id, code: spareParts.code, name: spareParts.name, unit: spareParts.unit, availableQuantity: spareParts.availableQuantity }).from(spareParts).orderBy(asc(spareParts.code)),
   ]);
   const q = filters.q.toLocaleLowerCase();
   const customMatches = new Set(customRows.filter((row) => contains(row.value, q)).map((row) => row.assetId));
@@ -55,7 +58,7 @@ export async function listAssets(filters: AssetFilters) {
     const visited = new Set<string>();
     while (cursor && !visited.has(cursor)) { visited.add(cursor); visibleIds.add(cursor); cursor = byId.get(cursor)?.parentAssetId; }
   }
-  return { assets: rows, resultIds, visibleIds: [...visibleIds], assetTypes: types, assetCategories: categories };
+  return { assets: rows, resultIds, visibleIds: [...visibleIds], assetTypes: types, assetCategories: categories, spareParts: parts };
 }
 
 export async function getAssetDetail(id: string) {
@@ -75,7 +78,7 @@ export async function getAssetDetail(id: string) {
     asset.parentAssetId ? db.select(assetSelection).from(assets).innerJoin(assetTypes, eq(assets.assetTypeId, assetTypes.id)).leftJoin(assetCategories, eq(assets.assetCategoryId, assetCategories.id)).where(eq(assets.id, asset.parentAssetId)).limit(1) : Promise.resolve([]),
     db.select(assetSelection).from(assets).innerJoin(assetTypes, eq(assets.assetTypeId, assetTypes.id)).leftJoin(assetCategories, eq(assets.assetCategoryId, assetCategories.id)).where(eq(assets.parentAssetId, id)).orderBy(asc(assets.code)),
     db.select().from(assetHierarchyLinks).where(eq(assetHierarchyLinks.parentAssetId, id)).orderBy(asc(assetHierarchyLinks.sequence)),
-    db.select({ id: assetSpareParts.id, sequence: assetSpareParts.sequence, enabled: assetSpareParts.enabled, requiredQuantity: assetSpareParts.requiredQuantity, note: assetSpareParts.note, code: spareParts.code, name: spareParts.name, description: spareParts.description, unit: spareParts.unit, availableQuantity: spareParts.availableQuantity }).from(assetSpareParts).innerJoin(spareParts, eq(assetSpareParts.sparePartId, spareParts.id)).where(eq(assetSpareParts.assetId, id)).orderBy(asc(assetSpareParts.sequence)),
+    db.select({ id: assetSpareParts.id, sparePartId: assetSpareParts.sparePartId, sequence: assetSpareParts.sequence, enabled: assetSpareParts.enabled, requiredQuantity: assetSpareParts.requiredQuantity, note: assetSpareParts.note, code: spareParts.code, name: spareParts.name, description: spareParts.description, unit: spareParts.unit, availableQuantity: spareParts.availableQuantity }).from(assetSpareParts).innerJoin(spareParts, eq(assetSpareParts.sparePartId, spareParts.id)).where(eq(assetSpareParts.assetId, id)).orderBy(asc(assetSpareParts.sequence)),
     db.select({ id: assetCustomFieldValues.id, value: assetCustomFieldValues.value, definitionId: assetCustomFieldDefinitions.id, name: assetCustomFieldDefinitions.name, label: assetCustomFieldDefinitions.label, description: assetCustomFieldDefinitions.description, fieldType: assetCustomFieldDefinitions.fieldType, unit: assetCustomFieldDefinitions.unit, defaultValue: assetCustomFieldDefinitions.defaultValue, availableValues: assetCustomFieldDefinitions.availableValues, sortOrder: assetCustomFieldDefinitions.sortOrder, groupId: assetCustomFieldGroups.id, groupName: assetCustomFieldGroups.name, groupSortOrder: assetCustomFieldGroups.sortOrder }).from(assetCustomFieldDefinitions).innerJoin(assetCustomFieldGroups, eq(assetCustomFieldDefinitions.groupId, assetCustomFieldGroups.id)).leftJoin(assetCustomFieldValues, and(eq(assetCustomFieldValues.definitionId, assetCustomFieldDefinitions.id), eq(assetCustomFieldValues.assetId, id))).where(asset.assetCategoryId ? or(isNull(assetCustomFieldDefinitions.assetCategoryId), eq(assetCustomFieldDefinitions.assetCategoryId, asset.assetCategoryId)) : isNull(assetCustomFieldDefinitions.assetCategoryId)).orderBy(asc(assetCustomFieldGroups.sortOrder), asc(assetCustomFieldDefinitions.sortOrder)),
     db.select({ id: attachments.id, originalName: attachments.originalName, contentType: attachments.contentType, byteSize: attachments.byteSize, storageKey: attachments.storageKey, driver: attachments.driver, createdAt: attachments.createdAt, note: assetDocumentMetadata.note }).from(attachments).leftJoin(assetDocumentMetadata, eq(attachments.id, assetDocumentMetadata.attachmentId)).where(and(eq(attachments.entityType, "ASSET"), eq(attachments.entityId, id), isNull(attachments.deletedAt))).orderBy(desc(attachments.createdAt)),
     db.select({ id: auditLogs.id, action: auditLogs.action, description: auditLogs.description, actorName: auditLogs.actorName, result: auditLogs.result, previousValues: auditLogs.previousValues, newValues: auditLogs.newValues, createdAt: auditLogs.createdAt }).from(auditLogs).where(and(eq(auditLogs.targetType, "ASSET"), eq(auditLogs.targetId, id))).orderBy(desc(auditLogs.createdAt)),
@@ -94,14 +97,14 @@ export async function getAssetDetail(id: string) {
     asset: { ...asset, ownerName: asset.ownerUserId ? names.get(asset.ownerUserId) ?? null : null, createdByName: names.get(asset.createdBy) ?? null, updatedByName: names.get(asset.updatedBy) ?? null },
     parent: parent[0] ?? null, children,
     hierarchyLinks: hierarchyLinks.map((link) => ({ ...link, asset: hierarchyAssets.find((item) => item.id === link.assetId) ?? null })),
-    spareParts: partRows, customFields: customRows, documents: documentRows, history,
+    spareParts: partRows, customFields: customRows, documents: documentRows.map((document) => ({ ...document, contentUrl: document.driver === "LOCAL" ? `/api/attachments/${document.id}/content` : document.storageKey })), history,
     workOrders: orders.map((order) => ({ ...order, assignedToName: order.assignedTo ? assigneeNames.get(order.assignedTo) ?? null : null })),
     contract: contract[0] ?? null,
   };
 }
 
 export async function getAssetFormReferences() {
-  const [types, categories, assets, users, contracts, groups, definitions] = await Promise.all([
+  const [types, categories, assets, users, contracts, groups, definitions, parts] = await Promise.all([
     prisma.assetType.findMany({ where: { active: true }, select: { id: true, code: true, name: true }, orderBy: { name: "asc" } }),
     prisma.assetCategory.findMany({ where: { active: true }, select: { id: true, code: true, name: true }, orderBy: { name: "asc" } }),
     prisma.asset.findMany({ select: { id: true, code: true, name: true, parentAssetId: true, structureLevel: true, status: true }, orderBy: { code: "asc" } }),
@@ -109,9 +112,86 @@ export async function getAssetFormReferences() {
     prisma.contract.findMany({ select: { id: true, code: true, name: true }, orderBy: { code: "asc" } }),
     prisma.assetCustomFieldGroup.findMany({ select: { id: true, name: true, sortOrder: true }, orderBy: { sortOrder: "asc" } }),
     prisma.assetCustomFieldDefinition.findMany({ select: { id: true, assetCategoryId: true, groupId: true, name: true, label: true, description: true, fieldType: true, placeholder: true, defaultValue: true, availableValues: true, unit: true, sortOrder: true, active: true }, orderBy: { sortOrder: "asc" } }),
+    prisma.sparePart.findMany({ select: { id: true, code: true, name: true, unit: true, availableQuantity: true }, orderBy: { code: "asc" } }),
   ]);
   const groupNames = new Map(groups.map((group) => [group.id, group.name]));
-  return { types, categories, assets, users, contracts, customFields: definitions.map((definition) => ({ ...definition, groupName: groupNames.get(definition.groupId) ?? "Additional information" })) };
+  return { types, categories, assets, users, contracts, spareParts: parts, customFields: definitions.map((definition) => ({ ...definition, groupName: groupNames.get(definition.groupId) ?? "Additional information" })) };
+}
+
+export async function createAssetHierarchyLink(parentAssetId: string, input: HierarchyLinkMutation, actor: AuthenticatedUser, meta: RequestMeta) {
+  if (parentAssetId === input.assetId) throw new HttpError(400, "An asset cannot link to itself", "INVALID_ASSET_HIERARCHY_LINK");
+  return prisma.$transaction(async (tx) => {
+    const [parent, child, duplicate] = await Promise.all([
+      tx.asset.findUnique({ where: { id: parentAssetId }, select: { code: true } }),
+      tx.asset.findUnique({ where: { id: input.assetId }, select: { code: true } }),
+      tx.assetHierarchyLink.findFirst({ where: { parentAssetId, assetId: input.assetId } }),
+    ]);
+    if (!parent || !child) throw new HttpError(404, "Asset not found", "ASSET_NOT_FOUND");
+    if (duplicate) throw new HttpError(409, "This asset BOM link already exists", "ASSET_HIERARCHY_LINK_EXISTS");
+    const link = await tx.assetHierarchyLink.create({ data: { id: randomUUID(), parentAssetId, rootAssetId: parentAssetId, assetId: input.assetId, sequence: input.sequence, enabled: input.enabled, quantity: String(input.quantity), note: emptyToNull(input.note) } });
+    await tx.auditLog.create({ data: auditData({ action: "ASSET_HIERARCHY_LINK_CREATED", category: "ASSETS", targetType: "ASSET", targetId: parentAssetId, targetName: parent.code, description: `Linked asset ${child.code}`, newValues: input }, actor, meta) });
+    return link;
+  });
+}
+
+export async function updateAssetHierarchyLink(parentAssetId: string, linkId: string, input: HierarchyLinkMutation, actor: AuthenticatedUser, meta: RequestMeta) {
+  if (parentAssetId === input.assetId) throw new HttpError(400, "An asset cannot link to itself", "INVALID_ASSET_HIERARCHY_LINK");
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.assetHierarchyLink.findFirst({ where: { id: linkId, parentAssetId } });
+    if (!existing) throw new HttpError(404, "Asset BOM link not found", "ASSET_HIERARCHY_LINK_NOT_FOUND");
+    const child = await tx.asset.findUnique({ where: { id: input.assetId }, select: { id: true } });
+    if (!child) throw new HttpError(404, "Linked asset not found", "ASSET_NOT_FOUND");
+    const duplicate = await tx.assetHierarchyLink.findFirst({ where: { parentAssetId, assetId: input.assetId, id: { not: linkId } } });
+    if (duplicate) throw new HttpError(409, "This asset BOM link already exists", "ASSET_HIERARCHY_LINK_EXISTS");
+    const link = await tx.assetHierarchyLink.update({ where: { id: linkId }, data: { assetId: input.assetId, sequence: input.sequence, enabled: input.enabled, quantity: String(input.quantity), note: emptyToNull(input.note) } });
+    await tx.auditLog.create({ data: auditData({ action: "ASSET_HIERARCHY_LINK_UPDATED", category: "ASSETS", targetType: "ASSET", targetId: parentAssetId, description: "Updated asset BOM link", previousValues: existing, newValues: input }, actor, meta) });
+    return link;
+  });
+}
+
+export async function deleteAssetHierarchyLink(parentAssetId: string, linkId: string, actor: AuthenticatedUser, meta: RequestMeta) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.assetHierarchyLink.findFirst({ where: { id: linkId, parentAssetId } });
+    if (!existing) throw new HttpError(404, "Asset BOM link not found", "ASSET_HIERARCHY_LINK_NOT_FOUND");
+    await tx.assetHierarchyLink.delete({ where: { id: linkId } });
+    await tx.auditLog.create({ data: auditData({ action: "ASSET_HIERARCHY_LINK_DELETED", category: "ASSETS", targetType: "ASSET", targetId: parentAssetId, description: "Removed asset BOM link", previousValues: existing }, actor, meta) });
+    return { id: linkId };
+  });
+}
+
+export async function createAssetSparePartLink(assetId: string, input: SparePartLinkMutation, actor: AuthenticatedUser, meta: RequestMeta) {
+  return prisma.$transaction(async (tx) => {
+    const [asset, part, duplicate] = await Promise.all([tx.asset.findUnique({ where: { id: assetId }, select: { code: true } }), tx.sparePart.findUnique({ where: { id: input.sparePartId }, select: { code: true } }), tx.assetSparePart.findFirst({ where: { assetId, sparePartId: input.sparePartId } })]);
+    if (!asset || !part) throw new HttpError(404, "Asset or spare part not found", "ASSET_SPARE_PART_REFERENCE_NOT_FOUND");
+    if (duplicate) throw new HttpError(409, "This spare part is already linked", "ASSET_SPARE_PART_EXISTS");
+    const link = await tx.assetSparePart.create({ data: { id: randomUUID(), assetId, sparePartId: input.sparePartId, sequence: input.sequence, enabled: input.enabled, requiredQuantity: String(input.requiredQuantity), note: emptyToNull(input.note) } });
+    await tx.auditLog.create({ data: auditData({ action: "ASSET_SPARE_PART_CREATED", category: "ASSETS", targetType: "ASSET", targetId: assetId, targetName: asset.code, description: `Linked spare part ${part.code}`, newValues: input }, actor, meta) });
+    return link;
+  });
+}
+
+export async function updateAssetSparePartLink(assetId: string, linkId: string, input: SparePartLinkMutation, actor: AuthenticatedUser, meta: RequestMeta) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.assetSparePart.findFirst({ where: { id: linkId, assetId } });
+    if (!existing) throw new HttpError(404, "Spare-part link not found", "ASSET_SPARE_PART_NOT_FOUND");
+    const part = await tx.sparePart.findUnique({ where: { id: input.sparePartId }, select: { id: true } });
+    if (!part) throw new HttpError(404, "Spare part not found", "SPARE_PART_NOT_FOUND");
+    const duplicate = await tx.assetSparePart.findFirst({ where: { assetId, sparePartId: input.sparePartId, id: { not: linkId } } });
+    if (duplicate) throw new HttpError(409, "This spare part is already linked", "ASSET_SPARE_PART_EXISTS");
+    const link = await tx.assetSparePart.update({ where: { id: linkId }, data: { sparePartId: input.sparePartId, sequence: input.sequence, enabled: input.enabled, requiredQuantity: String(input.requiredQuantity), note: emptyToNull(input.note) } });
+    await tx.auditLog.create({ data: auditData({ action: "ASSET_SPARE_PART_UPDATED", category: "ASSETS", targetType: "ASSET", targetId: assetId, description: "Updated spare-part link", previousValues: existing, newValues: input }, actor, meta) });
+    return link;
+  });
+}
+
+export async function deleteAssetSparePartLink(assetId: string, linkId: string, actor: AuthenticatedUser, meta: RequestMeta) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.assetSparePart.findFirst({ where: { id: linkId, assetId } });
+    if (!existing) throw new HttpError(404, "Spare-part link not found", "ASSET_SPARE_PART_NOT_FOUND");
+    await tx.assetSparePart.delete({ where: { id: linkId } });
+    await tx.auditLog.create({ data: auditData({ action: "ASSET_SPARE_PART_DELETED", category: "ASSETS", targetType: "ASSET", targetId: assetId, description: "Removed spare-part link", previousValues: existing }, actor, meta) });
+    return { id: linkId };
+  });
 }
 
 const emptyToNull = (value?: string | null) => value?.trim() ? value.trim() : null;

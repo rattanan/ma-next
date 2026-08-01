@@ -1,3 +1,4 @@
 import { z } from "zod";
 export const attachmentMetadataSchema = z.object({ entityType: z.string().trim().min(2).max(80).regex(/^[A-Z0-9_]+$/), entityId: z.string().trim().min(1).max(80), originalName: z.string().trim().min(1).max(255), contentType: z.string().trim().min(3).max(120), byteSize: z.coerce.number().int().positive(), checksum: z.string().trim().max(128).optional(), storageKey: z.string().trim().min(1).max(500) });
+export const attachmentUpdateSchema = z.object({ note: z.string().trim().max(2000).nullable() }).strict();
 export function validateAttachmentSize(byteSize: number, maximum: number) { if (byteSize > maximum) throw new Error(`Attachment exceeds the ${maximum} byte limit`); return true; }

@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ArrowLeft, Loader2, Save, ShieldAlert } from "lucide-react";
+import { ArrowLeft, ImagePlus, Loader2, Save, ShieldAlert } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -31,6 +31,7 @@ const defaults: Values = { code: "", name: "", description: "", assetTypeId: "",
 
 export default function AssetForm({ mode, assetId, permitted }: { mode: "create" | "edit"; assetId?: string; permitted: boolean }) {
   const router = useRouter(); const [refs, setRefs] = useState<Reference | null>(null); const [detail, setDetail] = useState<Detail | null>(null); const [error, setError] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null); const [uploading, setUploading] = useState(false);
   const form = useForm<Values>({ resolver: zodResolver(assetMutationSchema), defaultValues: defaults });
   useEffect(() => {
     if (!permitted) return;
@@ -49,11 +50,22 @@ export default function AssetForm({ mode, assetId, permitted }: { mode: "create"
   const categoryId = useWatch({ control: form.control, name: "assetCategoryId" }); const currentValues = useWatch({ control: form.control, name: "customFields" });
   const definitions = refs?.customFields.filter((field) => (!field.assetCategoryId || field.assetCategoryId === categoryId) && (field.active || Boolean(currentValues?.[field.id]))) ?? [];
   async function submit(values: Values) {
-    setError(""); const url = mode === "create" ? "/api/assets" : `/api/assets/${assetId}`;
-    const response = await fetch(url, { method: mode === "create" ? "POST" : "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(values) });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(body.error || "Unable to save asset"); return; }
-    router.push(`/assets/${body.id}?tab=general`); router.refresh();
+    setError(""); setUploading(Boolean(imageFile));
+    try {
+      const nextValues = { ...values };
+      if (imageFile) {
+        if (!assetId) throw new Error("Create the asset first, then use Edit Asset to upload its primary image.");
+        const upload = new FormData(); upload.set("file", imageFile); upload.set("entityType", "ASSET"); upload.set("entityId", assetId);
+        const uploaded = await read(await fetch("/api/attachments/upload", { method: "POST", body: upload })) as { attachment: { contentUrl: string } };
+        nextValues.primaryImagePath = uploaded.attachment.contentUrl;
+      }
+      const url = mode === "create" ? "/api/assets" : `/api/assets/${assetId}`;
+      const response = await fetch(url, { method: mode === "create" ? "POST" : "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(nextValues) });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "Unable to save asset");
+      router.push(`/assets/${body.id}?tab=${imageFile ? "documents" : "general"}`); router.refresh();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save asset"); }
+    finally { setUploading(false); }
   }
   if (!permitted) return <main className="grid min-h-[60vh] place-items-center p-6"><Alert className="max-w-lg"><ShieldAlert className="size-5" />Your role does not have permission to {mode} assets.</Alert></main>;
   if (!refs && !error) return <main className="mx-auto max-w-6xl space-y-4 p-4 md:p-6"><Skeleton className="h-24 rounded-xl" /><Skeleton className="h-80 rounded-xl" /><Skeleton className="h-64 rounded-xl" /></main>;
@@ -82,10 +94,11 @@ export default function AssetForm({ mode, assetId, permitted }: { mode: "create"
       <Section title="Technical and maintenance data"><div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Field id="unit" label="Unit"><Input id="unit" {...form.register("unit")} /></Field><Field id="serialNumber" label="Serial number"><Input id="serialNumber" {...form.register("serialNumber")} /></Field><Field id="maintenanceInterval" label="Maintenance interval"><Input id="maintenanceInterval" type="number" min={0} {...form.register("maintenanceInterval")} /></Field>
         <Field id="runningHourCode" label="Runtime-hour KKS"><Input id="runningHourCode" {...form.register("runningHourCode")} /></Field><Field id="budgetId" label="Budget ID"><Input id="budgetId" {...form.register("budgetId")} /></Field><Field id="primaryImagePath" label="Primary image path"><Input id="primaryImagePath" placeholder="Managed URL or preserved legacy path" {...form.register("primaryImagePath")} /></Field>
+        <Field id="primaryImage" label="Upload primary image" wide><div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4"><label htmlFor="primaryImage" className="flex min-h-20 cursor-pointer items-center gap-3"><ImagePlus className="size-8 text-blue-700" /><span><strong className="block text-sm">{imageFile ? imageFile.name : "Choose JPEG, PNG, or WebP"}</strong><span className="text-xs text-slate-500">Maximum 5 MB. The uploaded image becomes the primary asset image after saving.</span></span></label><input id="primaryImage" type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" disabled={mode !== "edit"} onChange={(event) => setImageFile(event.target.files?.[0] ?? null)} />{mode !== "edit" && <p className="mt-2 text-xs text-amber-700">Create the asset first, then open Edit Asset to upload an image.</p>}</div></Field>
       </div></Section>
       <Section title="Preserved legacy references" description="These identifiers remain editable for migration reconciliation and are never silently discarded."><div className="grid gap-4 md:grid-cols-3"><Field id="costCenterLegacyId" label="Cost center legacy ID"><Input id="costCenterLegacyId" type="number" min={1} {...form.register("costCenterLegacyId")} /></Field><Field id="budgetReferenceLegacyId" label="Budget reference legacy ID"><Input id="budgetReferenceLegacyId" type="number" min={1} {...form.register("budgetReferenceLegacyId")} /></Field><Field id="inventoryLocationLegacyId" label="Inventory location legacy ID"><Input id="inventoryLocationLegacyId" type="number" min={1} {...form.register("inventoryLocationLegacyId")} /></Field></div></Section>
       {definitions.length > 0 && <Section title="Category custom fields" description="Changing category replaces the applicable custom-value set transactionally."><div className="grid gap-4 md:grid-cols-2">{definitions.map((field) => <CustomField key={field.id} field={field} register={form.register} />)}</div></Section>}
-      <div className="sticky bottom-3 z-10 flex flex-col-reverse gap-2 rounded-xl border bg-white/95 p-3 shadow-lg backdrop-blur sm:flex-row sm:justify-end"><Button variant="outline" asChild><Link href={assetId ? `/assets/${assetId}` : "/assets"}>Cancel</Link></Button><Button type="submit" disabled={form.formState.isSubmitting}>{form.formState.isSubmitting ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}{mode === "create" ? "Create asset" : "Save changes"}</Button></div>
+      <div className="sticky bottom-3 z-10 flex flex-col-reverse gap-2 rounded-xl border bg-white/95 p-3 shadow-lg backdrop-blur sm:flex-row sm:justify-end"><Button variant="outline" asChild><Link href={assetId ? `/assets/${assetId}` : "/assets"}>Cancel</Link></Button><Button type="submit" disabled={form.formState.isSubmitting || uploading}>{form.formState.isSubmitting || uploading ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}{uploading ? "Uploading image…" : mode === "create" ? "Create asset" : "Save changes"}</Button></div>
     </form>}
   </main>;
 }

@@ -32,9 +32,16 @@ export const assetSchema = z.object({
 });
 
 export const notificationSchema = z.object({
+  organizationId: optionalId,
+  siteId: optionalId,
   assetId: z.string().uuid(),
   title: z.string().trim().min(3).max(190),
   description: z.string().trim().min(5).max(8000),
+  symptoms: z.string().trim().max(8000).optional(),
+  operationalImpact: z.string().trim().max(8000).optional(),
+  requestedUrgency: z.string().trim().max(80).optional(),
+  contactPerson: z.string().trim().max(160).optional(),
+  contactPhone: z.string().trim().max(60).optional(),
   type: z.enum(notificationTypeValues).default("CORRECTIVE"),
   priority: z.enum(notificationPriorityValues).default("MEDIUM"),
   severity: z.enum(maintenanceSeverityValues).default("MODERATE"),
@@ -46,6 +53,16 @@ export const notificationSchema = z.object({
   photoAttachmentIds: z.array(z.string().uuid()).max(10).default([]),
   dueAt: z.iso.datetime().nullable().optional(),
 });
+
+export const notificationDraftUpdateSchema = notificationSchema.partial().strict();
+export const notificationSubmitSchema = z.object({ comment: optionalText(4000) }).strict();
+export const notificationInformationResponseSchema = z.object({ response: z.string().trim().min(3).max(8000), attachmentIds: z.array(z.string().uuid()).max(20).default([]) }).strict();
+export const governedNotificationReviewSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("START_REVIEW"), comment: optionalText(4000) }),
+  z.object({ action: z.literal("REQUEST_INFORMATION"), comment: z.string().trim().min(3).max(4000) }),
+  z.object({ action: z.literal("REJECT"), comment: z.string().trim().min(3).max(4000) }),
+  z.object({ action: z.literal("APPROVE"), comment: optionalText(4000) }),
+]);
 
 export const notificationReviewSchema = z.object({
   decision: z.enum(notificationDecisionValues),
@@ -190,6 +207,39 @@ export const completionSchema = z.object({
   beforePhotoAttachmentIds: z.array(z.string().uuid()).max(20).default([]),
   afterPhotoAttachmentIds: z.array(z.string().uuid()).max(20).default([]),
 });
+
+export const completionRevisionSchema = z.object({
+  diagnosis: z.string().trim().min(3).max(8000),
+  rootCause: optionalText(8000),
+  rootCauseUnknownReason: optionalText(8000),
+  correctiveAction: z.string().trim().min(3).max(8000),
+  workSummary: z.string().trim().min(3).max(8000),
+  laborMinutes: z.coerce.number().int().min(1).max(525600),
+  partsFinalized: z.boolean(),
+  noPartsUsed: z.boolean().default(false),
+  testProcedure: z.string().trim().min(3).max(8000),
+  testResult: z.string().trim().min(2).max(8000),
+  remainingIssue: optionalText(8000),
+  recommendation: optionalText(8000),
+  beforePhotoAttachmentIds: z.array(z.string().uuid()).max(20).default([]),
+  afterPhotoAttachmentIds: z.array(z.string().uuid()).max(20).default([]),
+}).strict().superRefine((value, context) => {
+  if (!value.rootCause && !value.rootCauseUnknownReason) context.addIssue({ code: "custom", path: ["rootCause"], message: "Root cause or an unknown-cause explanation is required" });
+  if (!value.partsFinalized) context.addIssue({ code: "custom", path: ["partsFinalized"], message: "Parts usage must be finalized" });
+});
+
+export const governedAssignmentSchema = z.object({ technicianId: z.string().uuid(), teamName: optionalText(160), instructions: z.string().trim().min(3).max(8000), reason: optionalText(4000), dueAt: z.iso.datetime().nullable().optional() }).strict();
+export const waitingStatusSchema = z.object({ status: z.enum(["WAITING_FOR_PARTS", "WAITING_FOR_VENDOR", "WAITING_FOR_ACCESS", "ON_HOLD"]), reason: z.string().trim().min(3).max(8000), expectedResumeAt: z.iso.datetime().nullable().optional() }).strict();
+export const progressNoteSchema = z.object({ note: z.string().trim().min(3).max(8000) }).strict();
+export const managerCompletionDecisionSchema = z.discriminatedUnion("decision", [
+  z.object({ decision: z.literal("APPROVE"), comment: z.string().trim().min(3).max(4000) }),
+  z.object({ decision: z.literal("RETURN"), comment: z.string().trim().min(3).max(4000), requiredActions: z.array(z.string().trim().min(2).max(500)).min(1).max(20), technicianId: z.string().uuid().optional(), dueAt: z.iso.datetime().nullable().optional() }),
+]);
+export const operatorDecisionSchema = z.discriminatedUnion("decision", [
+  z.object({ decision: z.literal("ACCEPT"), comment: optionalText(4000) }),
+  z.object({ decision: z.literal("REJECT"), reason: z.string().trim().min(3).max(4000), remainingProblem: z.string().trim().min(3).max(8000), attachmentIds: z.array(z.string().uuid()).max(20).default([]) }),
+]);
+export const notificationCloseSchema = z.object({ comment: z.string().trim().min(3).max(4000) }).strict();
 
 export const sparePartUsageSchema = z.object({
   sparePartId: z.string().uuid(),

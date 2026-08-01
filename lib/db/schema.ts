@@ -13,7 +13,7 @@ import {
   varchar,
 } from "drizzle-orm/mysql-core";
 
-export const roleValues = ["ADMIN", "DATA_SOURCE_CREATOR", "DASHBOARD_CREATOR", "VIEWER"] as const;
+export const roleValues = ["ADMIN", "DATA_SOURCE_CREATOR", "DASHBOARD_CREATOR", "VIEWER", "OPERATOR", "MAINTENANCE_MANAGER", "TECHNICIAN"] as const;
 export const statusValues = ["ACTIVE", "INACTIVE", "LOCKED", "ARCHIVED"] as const;
 export type Role = (typeof roleValues)[number];
 export type UserStatus = (typeof statusValues)[number];
@@ -86,6 +86,8 @@ export const auditLogs = mysqlTable("audit_logs", {
   id: varchar("id", { length: 36 }).primaryKey(),
   actorUserId: varchar("actor_user_id", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
   actorName: varchar("actor_name", { length: 160 }),
+  actorRole: varchar("actor_role", { length: 80 }),
+  organizationId: varchar("organization_id", { length: 36 }),
   action: varchar("action", { length: 100 }).notNull(),
   category: varchar("category", { length: 60 }).notNull(),
   targetType: varchar("target_type", { length: 60 }),
@@ -144,9 +146,9 @@ export const notificationPriorityValues = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] 
 export const maintenanceSeverityValues = ["MINOR", "MODERATE", "MAJOR", "CRITICAL"] as const;
 export const equipmentOperatingStatusValues = ["RUNNING", "STOPPED", "DEGRADED", "UNKNOWN"] as const;
 export const notificationTypeValues = ["CORRECTIVE", "BREAKDOWN", "INSPECTION"] as const;
-export const notificationStatusValues = ["NEW", "APPROVED", "BACKLOG", "REJECTED", "COMPLETED"] as const;
-export const notificationDecisionValues = ["APPROVED", "BACKLOG", "REJECTED"] as const;
-export const workOrderStatusValues = ["OPEN", "BACKLOG", "IN_PROGRESS", "COMPLETION_PENDING", "VERIFIED", "CLOSED"] as const;
+export const notificationStatusValues = ["NEW", "BACKLOG", "COMPLETED", "DRAFT", "SUBMITTED", "UNDER_REVIEW", "NEEDS_INFORMATION", "REJECTED", "APPROVED", "IN_MAINTENANCE", "WAITING_FOR_OPERATOR_ACCEPTANCE", "OPERATOR_REJECTED", "OPERATOR_ACCEPTED", "READY_TO_CLOSE", "CLOSED", "CANCELLED"] as const;
+export const notificationDecisionValues = ["APPROVED", "BACKLOG", "REJECTED", "NEEDS_INFORMATION"] as const;
+export const workOrderStatusValues = ["OPEN", "BACKLOG", "COMPLETION_PENDING", "VERIFIED", "CREATED", "ASSIGNED", "TECHNICIAN_ACCEPTED", "IN_PROGRESS", "WAITING_FOR_PARTS", "WAITING_FOR_VENDOR", "WAITING_FOR_ACCESS", "ON_HOLD", "TECHNICIAN_COMPLETED", "UNDER_MANAGER_REVIEW", "RETURNED_TO_TECHNICIAN", "MANAGER_APPROVED", "WAITING_FOR_OPERATOR_ACCEPTANCE", "OPERATOR_REJECTED", "OPERATOR_ACCEPTED", "CLOSED", "CANCELLED"] as const;
 export const workOrderSourceTypeValues = ["MANUAL", "NOTIFICATION", "PREVENTIVE_EVENT", "SHUTDOWN_TASK", "IMPORT"] as const;
 export const workOrderTypeValues = ["PREVENTIVE", "CORRECTIVE", "SHUTDOWN", "OTHER_ASSIGNMENT"] as const;
 export const workOrderBacklogScopeValues = ["WORK_ORDER", "JOB_STEP"] as const;
@@ -154,6 +156,9 @@ export const workOrderToolLoanStatusValues = ["PLANNED", "ISSUED", "RETURNED", "
 export const workTaskStatusValues = ["OPEN", "IN_PROGRESS", "BACKLOG", "COMPLETED"] as const;
 export const workTaskKindValues = ["JOB_STEP", "CHECKLIST"] as const;
 export const verificationDecisionValues = ["VERIFIED", "RETURNED"] as const;
+export const managerDecisionValues = ["PENDING", "APPROVED", "RETURNED"] as const;
+export const recheckStatusValues = ["OPEN", "IN_PROGRESS", "RESUBMITTED", "APPROVED", "RETURNED_AGAIN", "CANCELLED"] as const;
+export const operatorDecisionValues = ["ACCEPTED", "REJECTED"] as const;
 
 export type NotificationStatus = (typeof notificationStatusValues)[number];
 export type NotificationDecision = (typeof notificationDecisionValues)[number];
@@ -320,14 +325,21 @@ export const assetDocumentMetadata = mysqlTable("asset_document_metadata", {
 export const maintenanceNotifications = mysqlTable("maintenance_notifications", {
   id: varchar("id", { length: 36 }).primaryKey(),
   code: varchar("code", { length: 60 }).notNull(),
+  organizationId: varchar("organization_id", { length: 36 }),
+  siteId: varchar("site_id", { length: 36 }),
   assetId: varchar("asset_id", { length: 36 }).notNull().references(() => assets.id),
   title: varchar("title", { length: 190 }).notNull(),
   description: text("description").notNull(),
+  symptoms: text("symptoms"),
+  operationalImpact: text("operational_impact"),
+  requestedUrgency: varchar("requested_urgency", { length: 80 }),
+  contactPerson: varchar("contact_person", { length: 160 }),
+  contactPhone: varchar("contact_phone", { length: 60 }),
   type: mysqlEnum("type", notificationTypeValues).notNull().default("CORRECTIVE"),
   priority: mysqlEnum("priority", notificationPriorityValues).notNull().default("MEDIUM"),
   severity: mysqlEnum("severity", maintenanceSeverityValues).notNull().default("MODERATE"),
   equipmentOperatingStatus: mysqlEnum("equipment_operating_status", equipmentOperatingStatusValues).notNull().default("UNKNOWN"),
-  status: mysqlEnum("status", notificationStatusValues).notNull().default("NEW"),
+  status: mysqlEnum("status", notificationStatusValues).notNull().default("DRAFT"),
   breakdown: boolean("breakdown").notNull().default(false),
   requestedBy: varchar("requested_by", { length: 36 }).notNull().references(() => users.id),
   departmentId: varchar("department_id", { length: 36 }),
@@ -336,12 +348,21 @@ export const maintenanceNotifications = mysqlTable("maintenance_notifications", 
   photoAttachmentIds: longtext("photo_attachment_ids"),
   dueAt: datetime("due_at", { mode: "date", fsp: 3 }),
   reviewedAt: datetime("reviewed_at", { mode: "date", fsp: 3 }),
+  submittedAt: datetime("submitted_at", { mode: "date", fsp: 3 }),
+  reviewedBy: varchar("reviewed_by", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+  informationRequest: text("information_request"),
+  rejectionReason: text("rejection_reason"),
+  operatorAcceptedBy: varchar("operator_accepted_by", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+  operatorAcceptedAt: datetime("operator_accepted_at", { mode: "date", fsp: 3 }),
+  operatorRejectionReason: text("operator_rejection_reason"),
+  closedBy: varchar("closed_by", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+  closedAt: datetime("closed_at", { mode: "date", fsp: 3 }),
   completedAt: datetime("completed_at", { mode: "date", fsp: 3 }),
   createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
   updatedAt: datetime("updated_at", { mode: "date", fsp: 3 }).notNull(),
   createdBy: varchar("created_by", { length: 36 }).notNull().references(() => users.id),
   updatedBy: varchar("updated_by", { length: 36 }).notNull().references(() => users.id),
-}, (table) => [uniqueIndex("maintenance_notifications_code_uq").on(table.code), index("maintenance_notifications_asset_idx").on(table.assetId), index("maintenance_notifications_status_idx").on(table.status)]);
+}, (table) => [uniqueIndex("maintenance_notifications_code_uq").on(table.code), index("maintenance_notifications_org_idx").on(table.organizationId, table.status), index("maintenance_notifications_asset_idx").on(table.assetId), index("maintenance_notifications_status_idx").on(table.status)]);
 
 export const notificationReviews = mysqlTable("notification_reviews", {
   id: varchar("id", { length: 36 }).primaryKey(),
@@ -350,11 +371,13 @@ export const notificationReviews = mysqlTable("notification_reviews", {
   note: text("note").notNull(),
   reviewedBy: varchar("reviewed_by", { length: 36 }).notNull().references(() => users.id),
   reviewedAt: datetime("reviewed_at", { mode: "date", fsp: 3 }).notNull(),
-}, (table) => [uniqueIndex("notification_reviews_notification_uq").on(table.notificationId)]);
+}, (table) => [index("notification_reviews_history_idx").on(table.notificationId, table.reviewedAt)]);
 
 export const workOrders = mysqlTable("work_orders", {
   id: varchar("id", { length: 36 }).primaryKey(),
   code: varchar("code", { length: 60 }).notNull(),
+  organizationId: varchar("organization_id", { length: 36 }),
+  siteId: varchar("site_id", { length: 36 }),
   notificationId: varchar("notification_id", { length: 36 }).references(() => maintenanceNotifications.id),
   sourceType: mysqlEnum("source_type", workOrderSourceTypeValues).notNull().default("MANUAL"),
   sourceRecordId: varchar("source_record_id", { length: 80 }),
@@ -365,7 +388,7 @@ export const workOrders = mysqlTable("work_orders", {
   priority: mysqlEnum("priority", notificationPriorityValues).notNull().default("MEDIUM"),
   severity: mysqlEnum("severity", maintenanceSeverityValues).notNull().default("MODERATE"),
   equipmentOperatingStatus: mysqlEnum("equipment_operating_status", equipmentOperatingStatusValues).notNull().default("UNKNOWN"),
-  status: mysqlEnum("status", workOrderStatusValues).notNull().default("OPEN"),
+  status: mysqlEnum("status", workOrderStatusValues).notNull().default("CREATED"),
   departmentId: varchar("department_id", { length: 36 }),
   crewName: varchar("crew_name", { length: 160 }),
   leadUserId: varchar("lead_user_id", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
@@ -389,13 +412,19 @@ export const workOrders = mysqlTable("work_orders", {
   supervisorId: varchar("supervisor_id", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
   dueAt: datetime("due_at", { mode: "date", fsp: 3 }),
   startedAt: datetime("started_at", { mode: "date", fsp: 3 }),
+  assignedAt: datetime("assigned_at", { mode: "date", fsp: 3 }),
+  assignedBy: varchar("assigned_by", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+  technicianAcceptedAt: datetime("technician_accepted_at", { mode: "date", fsp: 3 }),
+  technicianCompletedAt: datetime("technician_completed_at", { mode: "date", fsp: 3 }),
+  managerApprovedAt: datetime("manager_approved_at", { mode: "date", fsp: 3 }),
+  operatorAcceptedAt: datetime("operator_accepted_at", { mode: "date", fsp: 3 }),
   verifiedAt: datetime("verified_at", { mode: "date", fsp: 3 }),
   closedAt: datetime("closed_at", { mode: "date", fsp: 3 }),
   createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
   updatedAt: datetime("updated_at", { mode: "date", fsp: 3 }).notNull(),
   createdBy: varchar("created_by", { length: 36 }).notNull().references(() => users.id),
   updatedBy: varchar("updated_by", { length: 36 }).notNull().references(() => users.id),
-}, (table) => [uniqueIndex("work_orders_code_uq").on(table.code), uniqueIndex("work_orders_notification_uq").on(table.notificationId), uniqueIndex("work_orders_source_uq").on(table.sourceType, table.sourceRecordId), uniqueIndex("work_orders_legacy_uq").on(table.legacyId), index("work_orders_status_idx").on(table.status), index("work_orders_asset_idx").on(table.assetId), index("work_orders_assignee_idx").on(table.assignedTo), index("work_orders_type_priority_idx").on(table.workType, table.priority), index("work_orders_department_due_idx").on(table.departmentId, table.dueAt)]);
+}, (table) => [uniqueIndex("work_orders_code_uq").on(table.code), uniqueIndex("work_orders_source_uq").on(table.sourceType, table.sourceRecordId), uniqueIndex("work_orders_legacy_uq").on(table.legacyId), index("work_orders_org_idx").on(table.organizationId, table.status), index("work_orders_notification_idx").on(table.notificationId), index("work_orders_status_idx").on(table.status), index("work_orders_asset_idx").on(table.assetId), index("work_orders_assignee_idx").on(table.assignedTo), index("work_orders_type_priority_idx").on(table.workType, table.priority), index("work_orders_department_due_idx").on(table.departmentId, table.dueAt)]);
 
 export const workOrderTasks = mysqlTable("work_order_tasks", {
   id: varchar("id", { length: 36 }).primaryKey(),
@@ -463,19 +492,29 @@ export const workExecutionEntries = mysqlTable("work_execution_entries", {
 export const workOrderCompletions = mysqlTable("work_order_completions", {
   id: varchar("id", { length: 36 }).primaryKey(),
   workOrderId: varchar("work_order_id", { length: 36 }).notNull().references(() => workOrders.id, { onDelete: "cascade" }),
+  revisionNumber: int("revision_number").notNull().default(1),
   result: varchar("result", { length: 190 }).notNull(),
   problem: text("problem"),
   cause: text("cause"),
+  rootCauseUnknownReason: text("root_cause_unknown_reason"),
   solution: text("solution").notNull(),
   escalation: text("escalation"),
   notes: text("notes"),
+  testProcedure: text("test_procedure"),
+  testResult: text("test_result"),
+  remainingIssue: text("remaining_issue"),
+  recommendation: text("recommendation"),
+  managerDecision: mysqlEnum("manager_decision", managerDecisionValues).notNull().default("PENDING"),
+  managerId: varchar("manager_id", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+  managerComment: text("manager_comment"),
+  managerReviewedAt: datetime("manager_reviewed_at", { mode: "date", fsp: 3 }),
   durationMinutes: int("duration_minutes").notNull(),
   beforePhotoAttachmentIds: longtext("before_photo_attachment_ids"),
   afterPhotoAttachmentIds: longtext("after_photo_attachment_ids"),
   completedBy: varchar("completed_by", { length: 36 }).notNull().references(() => users.id),
   completedAt: datetime("completed_at", { mode: "date", fsp: 3 }).notNull(),
   createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
-}, (table) => [index("work_order_completions_order_idx").on(table.workOrderId, table.completedAt)]);
+}, (table) => [uniqueIndex("work_order_completions_revision_uq").on(table.workOrderId, table.revisionNumber), index("work_order_completions_order_idx").on(table.workOrderId, table.completedAt)]);
 
 export const workOrderSpareParts = mysqlTable("work_order_spare_parts", {
   id: varchar("id", { length: 36 }).primaryKey(),
@@ -510,5 +549,19 @@ export const workOrderEvents = mysqlTable("work_order_events", {
   toStatus: mysqlEnum("to_status", workOrderStatusValues),
   note: text("note"),
   actorUserId: varchar("actor_user_id", { length: 36 }).notNull().references(() => users.id),
+  actorRole: varchar("actor_role", { length: 80 }),
+  metadata: longtext("metadata"),
   createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
 }, (table) => [index("work_order_events_order_idx").on(table.workOrderId, table.createdAt)]);
+
+export const notificationEvents = mysqlTable("maintenance_notification_events", {
+  id: varchar("id", { length: 36 }).primaryKey(), notificationId: varchar("notification_id", { length: 36 }).notNull().references(() => maintenanceNotifications.id, { onDelete: "cascade" }), eventType: varchar("event_type", { length: 80 }).notNull(), fromStatus: mysqlEnum("from_status", notificationStatusValues), toStatus: mysqlEnum("to_status", notificationStatusValues), note: text("note"), actorUserId: varchar("actor_user_id", { length: 36 }).notNull().references(() => users.id), actorRole: varchar("actor_role", { length: 80 }), metadata: longtext("metadata"), createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
+}, (table) => [index("maintenance_notification_events_idx").on(table.notificationId, table.createdAt)]);
+
+export const workOrderRechecks = mysqlTable("work_order_rechecks", {
+  id: varchar("id", { length: 36 }).primaryKey(), workOrderId: varchar("work_order_id", { length: 36 }).notNull().references(() => workOrders.id, { onDelete: "cascade" }), completionId: varchar("completion_id", { length: 36 }).references(() => workOrderCompletions.id, { onDelete: "set null" }), cycleNumber: int("cycle_number").notNull(), requestedByUserId: varchar("requested_by_user_id", { length: 36 }).notNull().references(() => users.id), requestedByRole: varchar("requested_by_role", { length: 80 }).notNull(), returnReason: text("return_reason").notNull(), requiredActions: longtext("required_actions").notNull(), attachmentIds: longtext("attachment_ids"), assignedTechnicianId: varchar("assigned_technician_id", { length: 36 }).references(() => users.id, { onDelete: "set null" }), returnedAt: datetime("returned_at", { mode: "date", fsp: 3 }).notNull(), dueAt: datetime("due_at", { mode: "date", fsp: 3 }), status: mysqlEnum("status", recheckStatusValues).notNull().default("OPEN"), resolvedAt: datetime("resolved_at", { mode: "date", fsp: 3 }),
+}, (table) => [uniqueIndex("work_order_rechecks_cycle_uq").on(table.workOrderId, table.cycleNumber), index("work_order_rechecks_status_idx").on(table.workOrderId, table.status)]);
+
+export const workOrderOperatorDecisions = mysqlTable("work_order_operator_decisions", {
+  id: varchar("id", { length: 36 }).primaryKey(), workOrderId: varchar("work_order_id", { length: 36 }).notNull().references(() => workOrders.id, { onDelete: "cascade" }), notificationId: varchar("notification_id", { length: 36 }).notNull().references(() => maintenanceNotifications.id), decision: mysqlEnum("decision", operatorDecisionValues).notNull(), reason: text("reason"), remainingProblem: text("remaining_problem"), attachmentIds: longtext("attachment_ids"), decidedBy: varchar("decided_by", { length: 36 }).notNull().references(() => users.id), decidedAt: datetime("decided_at", { mode: "date", fsp: 3 }).notNull(),
+}, (table) => [index("work_order_operator_decisions_idx").on(table.workOrderId, table.decidedAt)]);

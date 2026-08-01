@@ -1,85 +1,53 @@
 import { describe, expect, it } from "vitest";
-import { completeNotification, completionReady, reviewNotification, transitionNotification, transitionTask, transitionWorkOrder, verificationAction, WorkflowError } from "../lib/maintenance/workflow";
+import { availableNotificationActions, availableWorkOrderActions, completionReady, transitionNotification, transitionWorkOrder, WorkflowError } from "../lib/maintenance/workflow";
 
 const actor = (id: string, permissions: string[]) => ({ id, permissions: permissions as never[] });
-const technician = actor("tech-1", ["EXECUTE_WORK_ORDERS"]);
-const supervisor = actor("supervisor-1", ["REVIEW_MAINTENANCE_NOTIFICATION", "VERIFY_WORK_ORDERS", "CLOSE_WORK_ORDERS"]);
+const operator = actor("operator", ["NOTIFICATION_SUBMIT", "NOTIFICATION_ACCEPT_WORK", "NOTIFICATION_REJECT_WORK", "NOTIFICATION_CLOSE"]);
+const manager = actor("manager", ["NOTIFICATION_REVIEW", "NOTIFICATION_REQUEST_INFORMATION", "NOTIFICATION_REJECT", "NOTIFICATION_APPROVE", "WORK_ORDER_CREATE", "WORK_ORDER_ASSIGN", "WORK_ORDER_REVIEW_COMPLETION", "WORK_ORDER_APPROVE_COMPLETION", "WORK_ORDER_RETURN_FOR_RECHECK", "WORK_ORDER_CLOSE"]);
+const technician = actor("tech", ["WORK_ORDER_ACCEPT_ASSIGNMENT", "WORK_ORDER_START", "WORK_ORDER_UPDATE_PROGRESS", "WORK_ORDER_SUBMIT_COMPLETION"]);
 
-describe("maintenance notification review", () => {
-  it.each(["APPROVED", "BACKLOG", "REJECTED"] as const)("moves a new notification to %s", (decision) => {
-    expect(reviewNotification("NEW", decision)).toBe(decision);
+describe("notification lifecycle", () => {
+  it("supports information return without overwriting the original state history", () => {
+    let status = transitionNotification("DRAFT", "SUBMIT", { actor: operator });
+    status = transitionNotification(status, "START_REVIEW", { actor: manager });
+    status = transitionNotification(status, "REQUEST_INFORMATION", { actor: manager, note: "Add operating readings" });
+    expect(transitionNotification(status, "PROVIDE_INFORMATION", { actor: operator })).toBe("SUBMITTED");
   });
-
-  it("prevents a second review", () => {
-    expect(() => reviewNotification("APPROVED", "REJECTED")).toThrow(WorkflowError);
+  it("requires linked work closure before final notification closure", () => {
+    expect(() => transitionNotification("READY_TO_CLOSE", "CLOSE", { actor: operator, note: "Confirmed", allWorkOrdersClosed: false })).toThrow("All linked work orders");
+    expect(transitionNotification("READY_TO_CLOSE", "CLOSE", { actor: operator, note: "Confirmed", allWorkOrdersClosed: true, openRecheckExists: false })).toBe("CLOSED");
   });
-
-  it("validates permission, technician, note, and backlog reason centrally", () => {
-    expect(() => transitionNotification("NEW", "APPROVE", { actor: technician, assignedTo: "tech-1", note: "Proceed" })).toThrow("Missing permission");
-    expect(() => transitionNotification("NEW", "APPROVE", { actor: supervisor, note: "Proceed" })).toThrow("assigned technician");
-    expect(() => transitionNotification("NEW", "BACKLOG", { actor: supervisor, assignedTo: "tech-1", note: "Deferred" })).toThrow("backlog reason");
-    expect(transitionNotification("NEW", "BACKLOG", { actor: supervisor, assignedTo: "tech-1", note: "Deferred", backlogReason: "Shutdown window required" })).toBe("BACKLOG");
+  it("offers only permission-compatible UI actions", () => {
+    expect(availableNotificationActions("UNDER_REVIEW", operator)).toEqual([]);
+    expect(availableNotificationActions("UNDER_REVIEW", manager)).toEqual(expect.arrayContaining(["APPROVE", "REJECT", "REQUEST_INFORMATION"]));
   });
 });
 
 describe("work order lifecycle", () => {
-  it("follows execution, completion, verification, and close in order", () => {
-    let status = transitionWorkOrder("OPEN", "START");
-    status = transitionWorkOrder(status, "SUBMIT_COMPLETION");
-    status = transitionWorkOrder(status, "VERIFY");
-    status = transitionWorkOrder(status, "CLOSE");
+  it("runs the full governed sequence", () => {
+    let status = transitionWorkOrder("CREATED", "ASSIGN", { actor: manager });
+    status = transitionWorkOrder(status, "ACCEPT_ASSIGNMENT", { actor: technician, assignedTo: "tech" });
+    status = transitionWorkOrder(status, "START", { actor: technician, assignedTo: "tech" });
+    status = transitionWorkOrder(status, "SUBMIT_COMPLETION", { actor: technician, assignedTo: "tech", requiredTasks: [{ required: true, status: "COMPLETED" }] });
+    status = transitionWorkOrder(status, "BEGIN_MANAGER_REVIEW", { actor: manager });
+    status = transitionWorkOrder(status, "APPROVE_COMPLETION", { actor: manager, completionExists: true, completionOwnerId: "tech" });
+    status = transitionWorkOrder(status, "REQUEST_OPERATOR_ACCEPTANCE", { actor: manager });
+    status = transitionWorkOrder(status, "OPERATOR_ACCEPT", { actor: operator });
+    status = transitionWorkOrder(status, "CLOSE", { actor: manager, note: "Administrative close", operatorAcceptanceExists: true, openRecheckExists: false });
     expect(status).toBe("CLOSED");
   });
-
-  it("returns rejected completion to execution", () => {
-    expect(transitionWorkOrder("COMPLETION_PENDING", verificationAction("RETURNED"))).toBe("IN_PROGRESS");
+  it("cannot skip assignment acceptance or operator acceptance", () => {
+    expect(() => transitionWorkOrder("ASSIGNED", "SUBMIT_COMPLETION", { actor: technician, assignedTo: "tech", requiredTasks: [] })).toThrow(WorkflowError);
+    expect(() => transitionWorkOrder("MANAGER_APPROVED", "CLOSE", { actor: manager, note: "Too soon", operatorAcceptanceExists: false })).toThrow(WorkflowError);
+    expect(() => transitionWorkOrder("CLOSED", "START", { actor: technician, assignedTo: "tech" })).toThrow(WorkflowError);
   });
-
-  it("allows authorized backlog work to start", () => {
-    expect(transitionWorkOrder("BACKLOG", "START")).toBe("IN_PROGRESS");
+  it("preserves the recheck route", () => {
+    const returned = transitionWorkOrder("UNDER_MANAGER_REVIEW", "RETURN_FOR_RECHECK", { actor: manager, completionExists: true, completionOwnerId: "tech", note: "Repeat load test" });
+    expect(transitionWorkOrder(returned, "START", { actor: technician, assignedTo: "tech" })).toBe("IN_PROGRESS");
   });
-
-  it("rejects skipping supervisor verification", () => {
-    expect(() => transitionWorkOrder("COMPLETION_PENDING", "CLOSE")).toThrow("Cannot close");
-  });
-
-  it("rejects changes after close", () => {
-    expect(() => transitionWorkOrder("CLOSED", "START")).toThrow(WorkflowError);
-  });
-
-  it("blocks unassigned work and permission bypass", () => {
-    expect(() => transitionWorkOrder("OPEN", "START", { actor: technician, assignedTo: null })).toThrow("assigned technician");
-    expect(() => transitionWorkOrder("OPEN", "START", { actor: supervisor, assignedTo: "tech-1" })).toThrow("Missing permission");
-  });
-
-  it("enforces required tasks and supervisor segregation of duties", () => {
-    expect(() => transitionWorkOrder("IN_PROGRESS", "SUBMIT_COMPLETION", { actor: technician, requiredTasks: [{ required: true, status: "OPEN" }] })).toThrow("required task");
-    expect(() => transitionWorkOrder("COMPLETION_PENDING", "VERIFY", { actor: { ...supervisor, id: "tech-1" }, completionExists: true, completionOwnerId: "tech-1", note: "Looks good" })).toThrow("cannot verify");
-  });
-});
-
-describe("completion readiness", () => {
-  it("allows completion when every required task is complete", () => {
-    expect(completionReady([{ required: true, status: "COMPLETED" }, { required: false, status: "OPEN" }])).toBe(true);
-  });
-
-  it("blocks completion while a required task remains open", () => {
+  it("requires assigned ownership and completed tasks", () => {
+    expect(() => transitionWorkOrder("ASSIGNED", "ACCEPT_ASSIGNMENT", { actor: technician, assignedTo: "other" })).toThrow("assigned technician");
     expect(completionReady([{ required: true, status: "OPEN" }])).toBe(false);
-  });
-
-  it("matches legacy behavior when no tasks exist", () => expect(completionReady([])).toBe(true));
-});
-
-describe("complete corrective maintenance flow", () => {
-  it("runs approval, conversion, execution, verification, and close without direct status edits", () => {
-    const notificationStatus = transitionNotification("NEW", "APPROVE", { actor: supervisor, assignedTo: "tech-1", note: "Approved corrective repair" });
-    expect(notificationStatus).toBe("APPROVED");
-    let workStatus = transitionWorkOrder("OPEN", "START", { actor: technician, assignedTo: "tech-1" });
-    expect(transitionTask("OPEN", "COMPLETED", technician)).toBe("COMPLETED");
-    workStatus = transitionWorkOrder(workStatus, "SUBMIT_COMPLETION", { actor: technician, requiredTasks: [{ required: true, status: "COMPLETED" }] });
-    workStatus = transitionWorkOrder(workStatus, "VERIFY", { actor: supervisor, completionExists: true, completionOwnerId: "tech-1", note: "Verified in operation" });
-    workStatus = transitionWorkOrder(workStatus, "CLOSE", { actor: supervisor, note: "Closed after stable run" });
-    expect(workStatus).toBe("CLOSED");
-    expect(completeNotification(notificationStatus, supervisor)).toBe("COMPLETED");
+    expect(availableWorkOrderActions("ASSIGNED", technician, "other")).not.toContain("ACCEPT_ASSIGNMENT");
   });
 });

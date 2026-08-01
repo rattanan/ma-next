@@ -20,17 +20,21 @@ export async function createSession(userId: string, meta: RequestMeta, rememberM
   return { token, expiresAt };
 }
 
-export type AuthenticatedUser = { id: string; fullName: string; username: string; email: string; role: Role; permissions: Permission[]; mustChangePassword: boolean };
+export type AuthorizationScope = { roleCode: string; scopeType: "GLOBAL" | "ORGANIZATION" | "SITE" | "DEPARTMENT"; organizationId: string | null; siteId: string | null; departmentId: string | null; permissions: Permission[] };
+export type AuthenticatedUser = { id: string; fullName: string; username: string; email: string; role: Role; roleCodes?: string[]; permissions: Permission[]; scopes?: AuthorizationScope[]; mustChangePassword: boolean };
 export async function getSessionByToken(token?: string) {
   if (!token) return null;
   const now = new Date();
   const row = await prisma.session.findFirst({ where: { sessionTokenHash: hashToken(token), revokedAt: null, expiresAt: { gt: now } }, include: { user: { include: { roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } } } } } });
   if (!row || row.user.status !== "ACTIVE") return null;
   await prisma.session.update({ where: { id: row.id }, data: { lastActiveAt: now } });
-  const role = roleValues.includes(row.user.legacyRole as Role) ? row.user.legacyRole as Role : "VIEWER";
-  const assigned = row.user.roles.flatMap((assignment) => assignment.role.active ? assignment.role.permissions.map((item) => item.permission.code as Permission) : []);
+  const activeAssignments = row.user.roles.filter((assignment) => assignment.role.active);
+  const operationalRole = activeAssignments.map((assignment) => assignment.role.code).find((code) => roleValues.includes(code as Role));
+  const role = (operationalRole ?? (roleValues.includes(row.user.legacyRole as Role) ? row.user.legacyRole : "VIEWER")) as Role;
+  const assigned = activeAssignments.flatMap((assignment) => assignment.role.permissions.map((item) => item.permission.code as Permission));
   const permissions = [...new Set([...rolePermissions[role], ...assigned])];
-  return { sessionId: row.id, user: { id: row.user.id, fullName: row.user.fullName, username: row.user.username, email: row.user.email, role, permissions, mustChangePassword: row.user.mustChangePassword } satisfies AuthenticatedUser, expiresAt: row.expiresAt };
+  const scopes = activeAssignments.map((assignment) => ({ roleCode: assignment.role.code, scopeType: assignment.scopeType, organizationId: assignment.organizationId, siteId: assignment.siteId, departmentId: assignment.departmentId, permissions: assignment.role.permissions.map((item) => item.permission.code as Permission) }));
+  return { sessionId: row.id, user: { id: row.user.id, fullName: row.user.fullName, username: row.user.username, email: row.user.email, role, roleCodes: [...new Set([role, ...activeAssignments.map((assignment) => assignment.role.code)])], permissions, scopes, mustChangePassword: row.user.mustChangePassword } satisfies AuthenticatedUser, expiresAt: row.expiresAt };
 }
 export async function getSession(request: NextRequest) { return getSessionByToken(request.cookies.get(SESSION_COOKIE)?.value); }
 export async function getCurrentSession() { return getSessionByToken((await cookies()).get(SESSION_COOKIE)?.value); }

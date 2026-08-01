@@ -16,7 +16,10 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:deploy:compatible": "tsx scripts/migrate-compatible.ts",
-    "db:seed": "prisma db seed"
+    "db:migrate:nexif:dry-run": "tsx scripts/migrate-nexif-maintenance.ts",
+    "db:migrate:nexif": "tsx scripts/migrate-nexif-maintenance.ts --apply",
+    "db:seed": "prisma db seed",
+    "db:seed:workflow": "tsx prisma/seed-workflow-demo.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.5.7",
