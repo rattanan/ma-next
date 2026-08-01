@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { assetCriticalityValues, assetStatusValues, assetStructureLevelValues, equipmentOperatingStatusValues, maintenanceSeverityValues, notificationDecisionValues, notificationPriorityValues, notificationTypeValues, verificationDecisionValues, workTaskKindValues, workTaskStatusValues } from "../db/schema";
+import { assetCriticalityValues, assetStatusValues, assetStructureLevelValues, equipmentOperatingStatusValues, maintenanceSeverityValues, notificationDecisionValues, notificationPriorityValues, notificationTypeValues, verificationDecisionValues, workOrderSourceTypeValues, workOrderStatusValues, workOrderTypeValues, workTaskKindValues, workTaskStatusValues } from "../db/schema";
 
 const optionalText = (max: number) => z.string().trim().max(max).optional().default("");
 const optionalId = z.string().uuid().nullable().optional();
@@ -65,9 +65,77 @@ export const taskSchema = z.object({
   required: z.boolean().default(true),
   kind: z.enum(workTaskKindValues).default("JOB_STEP"),
   assignedTo: optionalId,
+  assetId: optionalId,
+  dueAt: z.iso.datetime().nullable().optional(),
+  estimatedMinutes: z.coerce.number().int().nonnegative().max(525600).nullable().optional(),
+  responseType: z.enum(["TEXT", "NUMBER", "PASS_FAIL", "YES_NO", "OPTION"]).nullable().optional(),
 });
 
-export const taskStatusSchema = z.object({ status: z.enum(workTaskStatusValues) });
+export const taskStatusSchema = z.object({
+  status: z.enum(workTaskStatusValues),
+  result: optionalText(8000),
+  responseValue: optionalText(8000),
+  remarks: optionalText(8000),
+  actualMinutes: z.coerce.number().int().nonnegative().max(525600).nullable().optional(),
+  evidenceAttachmentId: optionalId,
+});
+
+export const workOrderListSchema = z.object({
+  q: z.string().trim().max(190).optional(),
+  type: z.enum(workOrderTypeValues).optional(),
+  status: z.enum(workOrderStatusValues).optional(),
+  priority: z.enum(notificationPriorityValues).optional(),
+  departmentId: z.string().uuid().optional(),
+  assignedTo: z.string().uuid().optional(),
+  dateFrom: z.iso.datetime().optional(),
+  dateTo: z.iso.datetime().optional(),
+  overdue: z.enum(["true", "false"]).optional(),
+  sort: z.enum(["updatedAt", "code", "dueAt", "priority", "status"]).default("updatedAt"),
+  order: z.enum(["asc", "desc"]).default("desc"),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+export const workOrderCreateSchema = z.object({
+  sourceType: z.enum(workOrderSourceTypeValues).default("MANUAL"),
+  sourceRecordId: z.string().trim().max(80).nullable().optional(),
+  workType: z.enum(workOrderTypeValues),
+  assetId: z.string().uuid(),
+  title: z.string().trim().min(3).max(190),
+  description: z.string().trim().min(5).max(8000),
+  priority: z.enum(notificationPriorityValues).default("MEDIUM"),
+  severity: z.enum(maintenanceSeverityValues).default("MODERATE"),
+  equipmentOperatingStatus: z.enum(equipmentOperatingStatusValues).default("UNKNOWN"),
+  departmentId: optionalId,
+  crewName: z.string().trim().max(160).nullable().optional(),
+  assignedTo: optionalId,
+  leadUserId: optionalId,
+  supervisorId: optionalId,
+  vendorName: z.string().trim().max(190).nullable().optional(),
+  customerName: z.string().trim().max(190).nullable().optional(),
+  reporterName: z.string().trim().max(160).nullable().optional(),
+  reporterPhone: z.string().trim().max(60).nullable().optional(),
+  reportedAt: z.iso.datetime().nullable().optional(),
+  plannedStartAt: z.iso.datetime().nullable().optional(),
+  plannedFinishAt: z.iso.datetime().nullable().optional(),
+  dueAt: z.iso.datetime().nullable().optional(),
+  estimatedMinutes: z.coerce.number().int().nonnegative().max(525600).nullable().optional(),
+  checklistTemplateId: optionalId,
+  maintenanceTemplateId: optionalId,
+  notes: optionalText(8000),
+  backlogReason: optionalText(4000),
+}).strict().superRefine((value, context) => {
+  if (value.sourceType !== "MANUAL" && !value.sourceRecordId) context.addIssue({ code: "custom", path: ["sourceRecordId"], message: "Source record is required" });
+  if (value.plannedStartAt && value.plannedFinishAt && new Date(value.plannedFinishAt) < new Date(value.plannedStartAt)) context.addIssue({ code: "custom", path: ["plannedFinishAt"], message: "Planned finish must not precede planned start" });
+});
+
+export const workOrderUpdateSchema = workOrderCreateSchema.omit({ sourceType: true, sourceRecordId: true, workType: true, assetId: true, backlogReason: true }).partial().strict();
+export const assignmentSchema = z.object({ departmentId: optionalId, assignedTo: z.string().uuid(), teamName: z.string().trim().max(160).nullable().optional(), positionName: z.string().trim().max(160).nullable().optional(), assignmentType: z.string().trim().min(2).max(40).default("TECHNICIAN"), note: z.string().trim().min(3).max(4000) });
+export const backlogSchema = z.object({ reasonCode: z.string().trim().max(60).nullable().optional(), reason: z.string().trim().min(3).max(8000), category: z.string().trim().max(80).nullable().optional(), expectedResumeAt: z.iso.datetime().nullable().optional() });
+export const resumeSchema = z.object({ resolution: z.string().trim().min(3).max(8000) });
+export const toolLoanSchema = z.object({ toolCode: z.string().trim().min(1).max(80), toolName: z.string().trim().min(2).max(190), quantity: z.coerce.number().positive().max(1_000_000), usageCondition: optionalText(4000), notes: optionalText(4000) });
+export const toolLoanCommandSchema = z.object({ loanId: z.string().uuid(), command: z.enum(["ISSUE", "RETURN", "CANCEL"]), note: optionalText(4000) });
+export const acceptanceSchema = z.object({ acceptedAt: z.iso.datetime(), details: z.string().trim().min(3).max(8000), notes: optionalText(8000), lotoReference: optionalText(190), isolationPoints: optionalText(8000), permitNumber: optionalText(120), safetyInstructions: optionalText(8000), hazards: optionalText(8000), operatingConditions: optionalText(8000), logSheetReference: optionalText(190), testResult: optionalText(8000), handoverDetails: optionalText(8000), attachmentIds: z.array(z.string().uuid()).max(20).default([]) });
 
 export const executionEntrySchema = z.object({
   description: z.string().trim().min(3).max(8000),

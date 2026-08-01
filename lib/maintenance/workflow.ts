@@ -9,7 +9,7 @@ export class WorkflowError extends HttpError {
 }
 
 export type NotificationAction = "APPROVE" | "BACKLOG" | "REJECT";
-export type WorkOrderAction = "START" | "SUBMIT_COMPLETION" | "VERIFY" | "RETURN" | "CLOSE";
+export type WorkOrderAction = "START" | "BACKLOG" | "RESUME" | "SUBMIT_COMPLETION" | "VERIFY" | "RETURN" | "CLOSE";
 
 type WorkflowActor = { id: string; permissions: readonly Permission[] };
 type TransitionContext = {
@@ -43,9 +43,9 @@ const notificationTransitions: Record<NotificationStatus, Partial<Record<Notific
 };
 
 const workOrderTransitions: Record<WorkOrderStatus, Partial<Record<WorkOrderAction, WorkOrderStatus>>> = {
-  OPEN: { START: "IN_PROGRESS" },
-  BACKLOG: { START: "IN_PROGRESS" },
-  IN_PROGRESS: { SUBMIT_COMPLETION: "COMPLETION_PENDING" },
+  OPEN: { START: "IN_PROGRESS", BACKLOG: "BACKLOG" },
+  BACKLOG: { START: "IN_PROGRESS", RESUME: "OPEN" },
+  IN_PROGRESS: { BACKLOG: "BACKLOG", SUBMIT_COMPLETION: "COMPLETION_PENDING" },
   COMPLETION_PENDING: { VERIFY: "VERIFIED", RETURN: "IN_PROGRESS" },
   VERIFIED: { CLOSE: "CLOSED" },
   CLOSED: {},
@@ -53,6 +53,8 @@ const workOrderTransitions: Record<WorkOrderStatus, Partial<Record<WorkOrderActi
 
 const workOrderPermissions: Record<WorkOrderAction, Permission> = {
   START: "EXECUTE_WORK_ORDERS",
+  BACKLOG: "EXECUTE_WORK_ORDERS",
+  RESUME: "EXECUTE_WORK_ORDERS",
   SUBMIT_COMPLETION: "EXECUTE_WORK_ORDERS",
   VERIFY: "VERIFY_WORK_ORDERS",
   RETURN: "VERIFY_WORK_ORDERS",
@@ -86,6 +88,8 @@ export function transitionWorkOrder(current: WorkOrderStatus, action: WorkOrderA
   if (!context) return next; // Pure state-table compatibility for callers that do not execute a command.
   requirePermission(context.actor, workOrderPermissions[action]);
   if (action === "START" && !context.assignedTo) throw new WorkflowError("An assigned technician is required before work starts", "MANDATORY_DATA_MISSING");
+  if (action === "BACKLOG") requireNote(context.backlogReason, "backlog reason");
+  if (action === "RESUME") requireNote(context.note, "resolution note");
   if (action === "SUBMIT_COMPLETION") {
     if (!completionReady(context.requiredTasks ?? [])) throw new WorkflowError("Complete every required task before submitting completion", "REQUIRED_TASKS_INCOMPLETE");
   }

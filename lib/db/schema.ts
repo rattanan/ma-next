@@ -147,6 +147,10 @@ export const notificationTypeValues = ["CORRECTIVE", "BREAKDOWN", "INSPECTION"] 
 export const notificationStatusValues = ["NEW", "APPROVED", "BACKLOG", "REJECTED", "COMPLETED"] as const;
 export const notificationDecisionValues = ["APPROVED", "BACKLOG", "REJECTED"] as const;
 export const workOrderStatusValues = ["OPEN", "BACKLOG", "IN_PROGRESS", "COMPLETION_PENDING", "VERIFIED", "CLOSED"] as const;
+export const workOrderSourceTypeValues = ["MANUAL", "NOTIFICATION", "PREVENTIVE_EVENT", "SHUTDOWN_TASK", "IMPORT"] as const;
+export const workOrderTypeValues = ["PREVENTIVE", "CORRECTIVE", "SHUTDOWN", "OTHER_ASSIGNMENT"] as const;
+export const workOrderBacklogScopeValues = ["WORK_ORDER", "JOB_STEP"] as const;
+export const workOrderToolLoanStatusValues = ["PLANNED", "ISSUED", "RETURNED", "CANCELLED"] as const;
 export const workTaskStatusValues = ["OPEN", "IN_PROGRESS", "COMPLETED"] as const;
 export const workTaskKindValues = ["JOB_STEP", "CHECKLIST"] as const;
 export const verificationDecisionValues = ["VERIFIED", "RETURNED"] as const;
@@ -154,6 +158,8 @@ export const verificationDecisionValues = ["VERIFIED", "RETURNED"] as const;
 export type NotificationStatus = (typeof notificationStatusValues)[number];
 export type NotificationDecision = (typeof notificationDecisionValues)[number];
 export type WorkOrderStatus = (typeof workOrderStatusValues)[number];
+export type WorkOrderSourceType = (typeof workOrderSourceTypeValues)[number];
+export type WorkOrderType = (typeof workOrderTypeValues)[number];
 export type WorkTaskStatus = (typeof workTaskStatusValues)[number];
 export type VerificationDecision = (typeof verificationDecisionValues)[number];
 export type AssetStatus = (typeof assetStatusValues)[number];
@@ -349,14 +355,35 @@ export const notificationReviews = mysqlTable("notification_reviews", {
 export const workOrders = mysqlTable("work_orders", {
   id: varchar("id", { length: 36 }).primaryKey(),
   code: varchar("code", { length: 60 }).notNull(),
-  notificationId: varchar("notification_id", { length: 36 }).notNull().references(() => maintenanceNotifications.id),
+  notificationId: varchar("notification_id", { length: 36 }).references(() => maintenanceNotifications.id),
+  sourceType: mysqlEnum("source_type", workOrderSourceTypeValues).notNull().default("MANUAL"),
+  sourceRecordId: varchar("source_record_id", { length: 80 }),
+  workType: mysqlEnum("work_type", workOrderTypeValues).notNull().default("CORRECTIVE"),
   assetId: varchar("asset_id", { length: 36 }).notNull().references(() => assets.id),
   title: varchar("title", { length: 190 }).notNull(),
   description: text("description").notNull(),
   priority: mysqlEnum("priority", notificationPriorityValues).notNull().default("MEDIUM"),
   severity: mysqlEnum("severity", maintenanceSeverityValues).notNull().default("MODERATE"),
+  equipmentOperatingStatus: mysqlEnum("equipment_operating_status", equipmentOperatingStatusValues).notNull().default("UNKNOWN"),
   status: mysqlEnum("status", workOrderStatusValues).notNull().default("OPEN"),
   departmentId: varchar("department_id", { length: 36 }),
+  crewName: varchar("crew_name", { length: 160 }),
+  leadUserId: varchar("lead_user_id", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+  vendorName: varchar("vendor_name", { length: 190 }),
+  customerName: varchar("customer_name", { length: 190 }),
+  reporterName: varchar("reporter_name", { length: 160 }),
+  reporterPhone: varchar("reporter_phone", { length: 60 }),
+  reportedAt: datetime("reported_at", { mode: "date", fsp: 3 }),
+  plannedStartAt: datetime("planned_start_at", { mode: "date", fsp: 3 }),
+  plannedFinishAt: datetime("planned_finish_at", { mode: "date", fsp: 3 }),
+  estimatedMinutes: int("estimated_minutes"),
+  actualFinishAt: datetime("actual_finish_at", { mode: "date", fsp: 3 }),
+  checklistTemplateId: varchar("checklist_template_id", { length: 36 }),
+  maintenanceTemplateId: varchar("maintenance_template_id", { length: 36 }),
+  notes: longtext("notes"),
+  legacyId: int("legacy_id"),
+  legacyType: varchar("legacy_type", { length: 80 }),
+  legacyStatus: varchar("legacy_status", { length: 80 }),
   backlogReason: text("backlog_reason"),
   assignedTo: varchar("assigned_to", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
   supervisorId: varchar("supervisor_id", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
@@ -368,7 +395,7 @@ export const workOrders = mysqlTable("work_orders", {
   updatedAt: datetime("updated_at", { mode: "date", fsp: 3 }).notNull(),
   createdBy: varchar("created_by", { length: 36 }).notNull().references(() => users.id),
   updatedBy: varchar("updated_by", { length: 36 }).notNull().references(() => users.id),
-}, (table) => [uniqueIndex("work_orders_code_uq").on(table.code), uniqueIndex("work_orders_notification_uq").on(table.notificationId), index("work_orders_status_idx").on(table.status), index("work_orders_asset_idx").on(table.assetId), index("work_orders_assignee_idx").on(table.assignedTo)]);
+}, (table) => [uniqueIndex("work_orders_code_uq").on(table.code), uniqueIndex("work_orders_notification_uq").on(table.notificationId), uniqueIndex("work_orders_source_uq").on(table.sourceType, table.sourceRecordId), uniqueIndex("work_orders_legacy_uq").on(table.legacyId), index("work_orders_status_idx").on(table.status), index("work_orders_asset_idx").on(table.assetId), index("work_orders_assignee_idx").on(table.assignedTo), index("work_orders_type_priority_idx").on(table.workType, table.priority), index("work_orders_department_due_idx").on(table.departmentId, table.dueAt)]);
 
 export const workOrderTasks = mysqlTable("work_order_tasks", {
   id: varchar("id", { length: 36 }).primaryKey(),
@@ -380,11 +407,42 @@ export const workOrderTasks = mysqlTable("work_order_tasks", {
   kind: mysqlEnum("kind", workTaskKindValues).notNull().default("JOB_STEP"),
   status: mysqlEnum("status", workTaskStatusValues).notNull().default("OPEN"),
   assignedTo: varchar("assigned_to", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+  assetId: varchar("asset_id", { length: 36 }).references(() => assets.id, { onDelete: "set null" }),
+  dueAt: datetime("due_at", { mode: "date", fsp: 3 }),
+  estimatedMinutes: int("estimated_minutes"),
+  actualMinutes: int("actual_minutes"),
+  result: longtext("result"),
+  notes: longtext("notes"),
+  responseType: varchar("response_type", { length: 40 }),
+  responseValue: longtext("response_value"),
+  remarks: longtext("remarks"),
+  evidenceAttachmentId: varchar("evidence_attachment_id", { length: 36 }),
+  legacyId: int("legacy_id"),
   completedBy: varchar("completed_by", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
   completedAt: datetime("completed_at", { mode: "date", fsp: 3 }),
   createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
   updatedAt: datetime("updated_at", { mode: "date", fsp: 3 }).notNull(),
-}, (table) => [uniqueIndex("work_order_tasks_sequence_uq").on(table.workOrderId, table.sequence), index("work_order_tasks_status_idx").on(table.workOrderId, table.status)]);
+}, (table) => [uniqueIndex("work_order_tasks_sequence_uq").on(table.workOrderId, table.sequence), uniqueIndex("work_order_tasks_legacy_uq").on(table.legacyId), index("work_order_tasks_status_idx").on(table.workOrderId, table.status)]);
+
+export const workOrderAssets = mysqlTable("work_order_assets", {
+  id: varchar("id", { length: 36 }).primaryKey(), workOrderId: varchar("work_order_id", { length: 36 }).notNull().references(() => workOrders.id, { onDelete: "cascade" }), assetId: varchar("asset_id", { length: 36 }).notNull().references(() => assets.id), role: varchar("role", { length: 40 }).notNull().default("RELATED"), sequence: int("sequence").notNull().default(10), notes: longtext("notes"), createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
+}, (table) => [uniqueIndex("work_order_assets_role_uq").on(table.workOrderId, table.assetId, table.role), index("work_order_assets_order_idx").on(table.workOrderId, table.sequence)]);
+
+export const workOrderAssignments = mysqlTable("work_order_assignments", {
+  id: varchar("id", { length: 36 }).primaryKey(), workOrderId: varchar("work_order_id", { length: 36 }).notNull().references(() => workOrders.id, { onDelete: "cascade" }), departmentId: varchar("department_id", { length: 36 }), userId: varchar("user_id", { length: 36 }).references(() => users.id, { onDelete: "set null" }), teamName: varchar("team_name", { length: 160 }), positionName: varchar("position_name", { length: 160 }), assignmentType: varchar("assignment_type", { length: 40 }).notNull().default("TECHNICIAN"), assignedAt: datetime("assigned_at", { mode: "date", fsp: 3 }).notNull(), endedAt: datetime("ended_at", { mode: "date", fsp: 3 }), assignedBy: varchar("assigned_by", { length: 36 }).notNull().references(() => users.id), note: longtext("note"),
+}, (table) => [index("work_order_assignments_order_idx").on(table.workOrderId, table.assignedAt), index("work_order_assignments_user_idx").on(table.userId, table.endedAt)]);
+
+export const workOrderBacklogEvents = mysqlTable("work_order_backlog_events", {
+  id: varchar("id", { length: 36 }).primaryKey(), workOrderId: varchar("work_order_id", { length: 36 }).notNull().references(() => workOrders.id, { onDelete: "cascade" }), taskId: varchar("task_id", { length: 36 }).references(() => workOrderTasks.id, { onDelete: "cascade" }), scope: mysqlEnum("scope", workOrderBacklogScopeValues).notNull().default("WORK_ORDER"), previousStatus: mysqlEnum("previous_status", workOrderStatusValues), reasonCode: varchar("reason_code", { length: 60 }), reason: longtext("reason").notNull(), category: varchar("category", { length: 80 }), expectedResumeAt: datetime("expected_resume_at", { mode: "date", fsp: 3 }), enteredBy: varchar("entered_by", { length: 36 }).notNull().references(() => users.id), enteredAt: datetime("entered_at", { mode: "date", fsp: 3 }).notNull(), resumedBy: varchar("resumed_by", { length: 36 }).references(() => users.id), resumedAt: datetime("resumed_at", { mode: "date", fsp: 3 }), resolution: longtext("resolution"),
+}, (table) => [index("work_order_backlog_order_idx").on(table.workOrderId, table.enteredAt), index("work_order_backlog_task_idx").on(table.taskId, table.resumedAt)]);
+
+export const workOrderToolLoans = mysqlTable("work_order_tool_loans", {
+  id: varchar("id", { length: 36 }).primaryKey(), workOrderId: varchar("work_order_id", { length: 36 }).notNull().references(() => workOrders.id, { onDelete: "cascade" }), toolCode: varchar("tool_code", { length: 80 }).notNull(), toolName: varchar("tool_name", { length: 190 }).notNull(), quantity: decimal("quantity", { precision: 14, scale: 4 }).notNull(), usageCondition: longtext("usage_condition"), status: mysqlEnum("status", workOrderToolLoanStatusValues).notNull().default("PLANNED"), issuedAt: datetime("issued_at", { mode: "date", fsp: 3 }), returnedAt: datetime("returned_at", { mode: "date", fsp: 3 }), issuedBy: varchar("issued_by", { length: 36 }).references(() => users.id), returnedBy: varchar("returned_by", { length: 36 }).references(() => users.id), notes: longtext("notes"), createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(), updatedAt: datetime("updated_at", { mode: "date", fsp: 3 }).notNull(),
+}, (table) => [index("work_order_tool_loans_order_idx").on(table.workOrderId, table.status)]);
+
+export const workOrderAcceptances = mysqlTable("work_order_acceptances", {
+  id: varchar("id", { length: 36 }).primaryKey(), workOrderId: varchar("work_order_id", { length: 36 }).notNull().references(() => workOrders.id, { onDelete: "cascade" }), acceptedAt: datetime("accepted_at", { mode: "date", fsp: 3 }).notNull(), acceptedBy: varchar("accepted_by", { length: 36 }).notNull().references(() => users.id), details: longtext("details").notNull(), notes: longtext("notes"), lotoReference: varchar("loto_reference", { length: 190 }), isolationPoints: longtext("isolation_points"), permitNumber: varchar("permit_number", { length: 120 }), safetyInstructions: longtext("safety_instructions"), hazards: longtext("hazards"), operatingConditions: longtext("operating_conditions"), logSheetReference: varchar("log_sheet_reference", { length: 190 }), testResult: longtext("test_result"), handoverDetails: longtext("handover_details"), attachmentIds: longtext("attachment_ids"), createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
+}, (table) => [index("work_order_acceptances_order_idx").on(table.workOrderId, table.acceptedAt)]);
 
 export const workExecutionEntries = mysqlTable("work_execution_entries", {
   id: varchar("id", { length: 36 }).primaryKey(),

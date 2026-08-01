@@ -116,6 +116,29 @@ enum WorkOrderStatus {
   VERIFIED
   CLOSED
 }
+enum WorkOrderSourceType {
+  MANUAL
+  NOTIFICATION
+  PREVENTIVE_EVENT
+  SHUTDOWN_TASK
+  IMPORT
+}
+enum WorkOrderType {
+  PREVENTIVE
+  CORRECTIVE
+  SHUTDOWN
+  OTHER_ASSIGNMENT
+}
+enum WorkOrderBacklogScope {
+  WORK_ORDER
+  JOB_STEP
+}
+enum WorkOrderToolLoanStatus {
+  PLANNED
+  ISSUED
+  RETURNED
+  CANCELLED
+}
 enum WorkTaskStatus {
   OPEN
   IN_PROGRESS
@@ -630,14 +653,35 @@ model NotificationReview {
 model WorkOrder {
   id String @id @default(uuid()) @db.VarChar(36)
   code String @unique @db.VarChar(60)
-  notificationId String @unique @map("notification_id") @db.VarChar(36)
+  notificationId String? @unique @map("notification_id") @db.VarChar(36)
+  sourceType WorkOrderSourceType @default(MANUAL) @map("source_type")
+  sourceRecordId String? @map("source_record_id") @db.VarChar(80)
+  workType WorkOrderType @default(CORRECTIVE) @map("work_type")
   assetId String @map("asset_id") @db.VarChar(36)
   title String @db.VarChar(190)
   description String @db.Text
   priority MaintenancePriority @default(MEDIUM)
   severity MaintenanceSeverity @default(MODERATE)
+  equipmentOperatingStatus EquipmentOperatingStatus @default(UNKNOWN) @map("equipment_operating_status")
   status WorkOrderStatus @default(OPEN)
   departmentId String? @map("department_id") @db.VarChar(36)
+  crewName String? @map("crew_name") @db.VarChar(160)
+  leadUserId String? @map("lead_user_id") @db.VarChar(36)
+  vendorName String? @map("vendor_name") @db.VarChar(190)
+  customerName String? @map("customer_name") @db.VarChar(190)
+  reporterName String? @map("reporter_name") @db.VarChar(160)
+  reporterPhone String? @map("reporter_phone") @db.VarChar(60)
+  reportedAt DateTime? @map("reported_at") @db.DateTime(3)
+  plannedStartAt DateTime? @map("planned_start_at") @db.DateTime(3)
+  plannedFinishAt DateTime? @map("planned_finish_at") @db.DateTime(3)
+  estimatedMinutes Int? @map("estimated_minutes")
+  actualFinishAt DateTime? @map("actual_finish_at") @db.DateTime(3)
+  checklistTemplateId String? @map("checklist_template_id") @db.VarChar(36)
+  maintenanceTemplateId String? @map("maintenance_template_id") @db.VarChar(36)
+  notes String? @db.LongText
+  legacyId Int? @unique @map("legacy_id")
+  legacyType String? @map("legacy_type") @db.VarChar(80)
+  legacyStatus String? @map("legacy_status") @db.VarChar(80)
   backlogReason String? @map("backlog_reason") @db.Text
   assignedTo String? @map("assigned_to") @db.VarChar(36)
   supervisorId String? @map("supervisor_id") @db.VarChar(36)
@@ -652,6 +696,9 @@ model WorkOrder {
   @@index([status])
   @@index([assetId])
   @@index([assignedTo])
+  @@index([workType, priority])
+  @@index([departmentId, dueAt])
+  @@unique([sourceType, sourceRecordId])
   @@map("work_orders")
 }
 
@@ -665,6 +712,17 @@ model WorkOrderTask {
   kind WorkTaskKind @default(JOB_STEP)
   status WorkTaskStatus @default(OPEN)
   assignedTo String? @map("assigned_to") @db.VarChar(36)
+  assetId String? @map("asset_id") @db.VarChar(36)
+  dueAt DateTime? @map("due_at") @db.DateTime(3)
+  estimatedMinutes Int? @map("estimated_minutes")
+  actualMinutes Int? @map("actual_minutes")
+  result String? @db.LongText
+  notes String? @db.LongText
+  responseType String? @map("response_type") @db.VarChar(40)
+  responseValue String? @map("response_value") @db.LongText
+  remarks String? @db.LongText
+  evidenceAttachmentId String? @map("evidence_attachment_id") @db.VarChar(36)
+  legacyId Int? @unique @map("legacy_id")
   completedBy String? @map("completed_by") @db.VarChar(36)
   completedAt DateTime? @map("completed_at") @db.DateTime(3)
   createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
@@ -672,6 +730,97 @@ model WorkOrderTask {
   @@unique([workOrderId, sequence])
   @@index([workOrderId, status])
   @@map("work_order_tasks")
+}
+
+model WorkOrderAsset {
+  id String @id @default(uuid()) @db.VarChar(36)
+  workOrderId String @map("work_order_id") @db.VarChar(36)
+  assetId String @map("asset_id") @db.VarChar(36)
+  role String @default("RELATED") @db.VarChar(40)
+  sequence Int @default(10)
+  notes String? @db.LongText
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  @@unique([workOrderId, assetId, role])
+  @@index([workOrderId, sequence])
+  @@map("work_order_assets")
+}
+
+model WorkOrderAssignment {
+  id String @id @default(uuid()) @db.VarChar(36)
+  workOrderId String @map("work_order_id") @db.VarChar(36)
+  departmentId String? @map("department_id") @db.VarChar(36)
+  userId String? @map("user_id") @db.VarChar(36)
+  teamName String? @map("team_name") @db.VarChar(160)
+  positionName String? @map("position_name") @db.VarChar(160)
+  assignmentType String @default("TECHNICIAN") @map("assignment_type") @db.VarChar(40)
+  assignedAt DateTime @map("assigned_at") @db.DateTime(3)
+  endedAt DateTime? @map("ended_at") @db.DateTime(3)
+  assignedBy String @map("assigned_by") @db.VarChar(36)
+  note String? @db.LongText
+  @@index([workOrderId, assignedAt])
+  @@index([userId, endedAt])
+  @@map("work_order_assignments")
+}
+
+model WorkOrderBacklogEvent {
+  id String @id @default(uuid()) @db.VarChar(36)
+  workOrderId String @map("work_order_id") @db.VarChar(36)
+  taskId String? @map("task_id") @db.VarChar(36)
+  scope WorkOrderBacklogScope @default(WORK_ORDER)
+  previousStatus WorkOrderStatus? @map("previous_status")
+  reasonCode String? @map("reason_code") @db.VarChar(60)
+  reason String @db.LongText
+  category String? @db.VarChar(80)
+  expectedResumeAt DateTime? @map("expected_resume_at") @db.DateTime(3)
+  enteredBy String @map("entered_by") @db.VarChar(36)
+  enteredAt DateTime @map("entered_at") @db.DateTime(3)
+  resumedBy String? @map("resumed_by") @db.VarChar(36)
+  resumedAt DateTime? @map("resumed_at") @db.DateTime(3)
+  resolution String? @db.LongText
+  @@index([workOrderId, enteredAt])
+  @@index([taskId, resumedAt])
+  @@map("work_order_backlog_events")
+}
+
+model WorkOrderToolLoan {
+  id String @id @default(uuid()) @db.VarChar(36)
+  workOrderId String @map("work_order_id") @db.VarChar(36)
+  toolCode String @map("tool_code") @db.VarChar(80)
+  toolName String @map("tool_name") @db.VarChar(190)
+  quantity Decimal @db.Decimal(14, 4)
+  usageCondition String? @map("usage_condition") @db.LongText
+  status WorkOrderToolLoanStatus @default(PLANNED)
+  issuedAt DateTime? @map("issued_at") @db.DateTime(3)
+  returnedAt DateTime? @map("returned_at") @db.DateTime(3)
+  issuedBy String? @map("issued_by") @db.VarChar(36)
+  returnedBy String? @map("returned_by") @db.VarChar(36)
+  notes String? @db.LongText
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+  @@index([workOrderId, status])
+  @@map("work_order_tool_loans")
+}
+
+model WorkOrderAcceptance {
+  id String @id @default(uuid()) @db.VarChar(36)
+  workOrderId String @map("work_order_id") @db.VarChar(36)
+  acceptedAt DateTime @map("accepted_at") @db.DateTime(3)
+  acceptedBy String @map("accepted_by") @db.VarChar(36)
+  details String @db.LongText
+  notes String? @db.LongText
+  lotoReference String? @map("loto_reference") @db.VarChar(190)
+  isolationPoints String? @map("isolation_points") @db.LongText
+  permitNumber String? @map("permit_number") @db.VarChar(120)
+  safetyInstructions String? @map("safety_instructions") @db.LongText
+  hazards String? @db.LongText
+  operatingConditions String? @map("operating_conditions") @db.LongText
+  logSheetReference String? @map("log_sheet_reference") @db.VarChar(190)
+  testResult String? @map("test_result") @db.LongText
+  handoverDetails String? @map("handover_details") @db.LongText
+  attachmentIds String? @map("attachment_ids") @db.LongText
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  @@index([workOrderId, acceptedAt])
+  @@map("work_order_acceptances")
 }
 
 model WorkExecutionEntry {

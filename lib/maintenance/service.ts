@@ -4,7 +4,7 @@ import { db } from "../db";
 import { prisma } from "../prisma";
 import {
   assetCategories, assets, assetTypes, auditLogs, maintenanceNotifications, notificationReviews, spareParts, users,
-  workExecutionEntries, workOrderCompletions, workOrderEvents, workOrderSpareParts, workOrderTasks, workOrderVerifications, workOrders,
+  workExecutionEntries, workOrderAcceptances, workOrderAssignments, workOrderBacklogEvents, workOrderCompletions, workOrderEvents, workOrderSpareParts, workOrderTasks, workOrderToolLoans, workOrderVerifications, workOrders,
   type WorkOrderStatus,
 } from "../db/schema";
 import { HttpError } from "../http";
@@ -61,17 +61,21 @@ export async function listMaintenanceOverview() {
 }
 
 export async function getWorkOrderDetail(id: string) {
-  const order = (await db.select({ id: workOrders.id, code: workOrders.code, title: workOrders.title, description: workOrders.description, priority: workOrders.priority, status: workOrders.status, notificationId: workOrders.notificationId, assetId: workOrders.assetId, assetCode: assets.code, assetName: assets.name, assignedTo: workOrders.assignedTo, dueAt: workOrders.dueAt, startedAt: workOrders.startedAt, verifiedAt: workOrders.verifiedAt, closedAt: workOrders.closedAt, updatedAt: workOrders.updatedAt }).from(workOrders).innerJoin(assets, eq(workOrders.assetId, assets.id)).where(eq(workOrders.id, id)).limit(1))[0];
+  const order = (await db.select({ id: workOrders.id, code: workOrders.code, sourceType: workOrders.sourceType, sourceRecordId: workOrders.sourceRecordId, workType: workOrders.workType, title: workOrders.title, description: workOrders.description, priority: workOrders.priority, severity: workOrders.severity, equipmentOperatingStatus: workOrders.equipmentOperatingStatus, status: workOrders.status, notificationId: workOrders.notificationId, assetId: workOrders.assetId, assetCode: assets.code, assetName: assets.name, departmentId: workOrders.departmentId, crewName: workOrders.crewName, assignedTo: workOrders.assignedTo, leadUserId: workOrders.leadUserId, supervisorId: workOrders.supervisorId, vendorName: workOrders.vendorName, customerName: workOrders.customerName, reporterName: workOrders.reporterName, reporterPhone: workOrders.reporterPhone, reportedAt: workOrders.reportedAt, plannedStartAt: workOrders.plannedStartAt, plannedFinishAt: workOrders.plannedFinishAt, dueAt: workOrders.dueAt, estimatedMinutes: workOrders.estimatedMinutes, startedAt: workOrders.startedAt, actualFinishAt: workOrders.actualFinishAt, verifiedAt: workOrders.verifiedAt, closedAt: workOrders.closedAt, notes: workOrders.notes, backlogReason: workOrders.backlogReason, createdAt: workOrders.createdAt, updatedAt: workOrders.updatedAt }).from(workOrders).innerJoin(assets, eq(workOrders.assetId, assets.id)).where(eq(workOrders.id, id)).limit(1))[0];
   if (!order) throw new HttpError(404, "Work order not found", "WORK_ORDER_NOT_FOUND");
-  const [tasks, execution, completions, verifications, events, usedSpareParts] = await Promise.all([
+  const [tasks, execution, completions, verifications, events, usedSpareParts, assignments, backlogEvents, toolLoans, acceptances] = await Promise.all([
     db.select().from(workOrderTasks).where(eq(workOrderTasks.workOrderId, id)).orderBy(asc(workOrderTasks.sequence)),
     db.select().from(workExecutionEntries).where(eq(workExecutionEntries.workOrderId, id)).orderBy(desc(workExecutionEntries.actionAt)),
     db.select().from(workOrderCompletions).where(eq(workOrderCompletions.workOrderId, id)).orderBy(desc(workOrderCompletions.completedAt)),
     db.select().from(workOrderVerifications).where(eq(workOrderVerifications.workOrderId, id)).orderBy(desc(workOrderVerifications.verifiedAt)),
     db.select().from(workOrderEvents).where(eq(workOrderEvents.workOrderId, id)).orderBy(desc(workOrderEvents.createdAt)),
     db.select({ id: workOrderSpareParts.id, sparePartId: workOrderSpareParts.sparePartId, code: spareParts.code, name: spareParts.name, quantity: workOrderSpareParts.quantity, unit: spareParts.unit, note: workOrderSpareParts.note, usedAt: workOrderSpareParts.usedAt }).from(workOrderSpareParts).innerJoin(spareParts, eq(workOrderSpareParts.sparePartId, spareParts.id)).where(eq(workOrderSpareParts.workOrderId, id)).orderBy(desc(workOrderSpareParts.usedAt)),
+    db.select().from(workOrderAssignments).where(eq(workOrderAssignments.workOrderId, id)).orderBy(desc(workOrderAssignments.assignedAt)),
+    db.select().from(workOrderBacklogEvents).where(eq(workOrderBacklogEvents.workOrderId, id)).orderBy(desc(workOrderBacklogEvents.enteredAt)),
+    db.select().from(workOrderToolLoans).where(eq(workOrderToolLoans.workOrderId, id)).orderBy(desc(workOrderToolLoans.createdAt)),
+    db.select().from(workOrderAcceptances).where(eq(workOrderAcceptances.workOrderId, id)).orderBy(desc(workOrderAcceptances.acceptedAt)),
   ]);
-  return { order, tasks, execution, completions, verifications, events, usedSpareParts };
+  return { order, tasks, execution, completions, verifications, events, usedSpareParts, assignments, backlogEvents, toolLoans, acceptances };
 }
 
 export async function createAsset(input: AssetInput, actor: Actor, meta: RequestMeta) {
@@ -112,7 +116,8 @@ export async function reviewMaintenanceNotification(id: string, input: ReviewInp
     let workOrder: { id: string; code: string } | null = null;
     if (input.decision === "APPROVED" || input.decision === "BACKLOG") {
       const orderId = randomUUID(); const code = nowCode("WO"); const orderStatus: WorkOrderStatus = convertNotificationToWorkOrder(next, actor, { assignedTo: input.assignedTo, backlogReason: input.backlogReason });
-      await tx.insert(workOrders).values({ id: orderId, code, notificationId: id, assetId: notification.assetId, title: notification.title, description: notification.description, priority: notification.priority, severity: notification.severity, departmentId: notification.departmentId, backlogReason: input.decision === "BACKLOG" ? input.backlogReason : null, status: orderStatus, assignedTo: input.assignedTo ?? null, supervisorId: notification.supervisorId, dueAt: dateOrNull(input.dueAt) ?? notification.dueAt, createdAt: now, updatedAt: now, createdBy: actor.id, updatedBy: actor.id });
+      await tx.insert(workOrders).values({ id: orderId, code, notificationId: id, sourceType: "NOTIFICATION", sourceRecordId: id, workType: "CORRECTIVE", assetId: notification.assetId, title: notification.title, description: notification.description, priority: notification.priority, severity: notification.severity, equipmentOperatingStatus: notification.equipmentOperatingStatus, departmentId: notification.departmentId, backlogReason: input.decision === "BACKLOG" ? input.backlogReason : null, status: orderStatus, assignedTo: input.assignedTo ?? null, supervisorId: notification.supervisorId, reportedAt: notification.createdAt, dueAt: dateOrNull(input.dueAt) ?? notification.dueAt, createdAt: now, updatedAt: now, createdBy: actor.id, updatedBy: actor.id });
+      if (input.assignedTo) await tx.insert(workOrderAssignments).values({ id: randomUUID(), workOrderId: orderId, departmentId: notification.departmentId, userId: input.assignedTo, assignmentType: "TECHNICIAN", assignedAt: now, assignedBy: actor.id, note: input.note });
       await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: orderId, eventType: "WORK_ORDER_CREATED", toStatus: orderStatus, note: input.note, actorUserId: actor.id, createdAt: now });
       workOrder = { id: orderId, code };
     }
@@ -147,7 +152,7 @@ export async function addWorkOrderTask(id: string, input: TaskInput, actor: Acto
     if (!(["OPEN", "BACKLOG", "IN_PROGRESS"] as WorkOrderStatus[]).includes(order.status)) throw new HttpError(409, "Tasks cannot be changed after completion is submitted", "WORK_ORDER_LOCKED");
     const existing = await tx.select({ sequence: workOrderTasks.sequence }).from(workOrderTasks).where(eq(workOrderTasks.workOrderId, id)).orderBy(desc(workOrderTasks.sequence)).limit(1);
     const sequence = (existing[0]?.sequence ?? 0) + 1;
-    await tx.insert(workOrderTasks).values({ id: taskId, workOrderId: id, sequence, title: input.title, description: input.description || null, required: input.required, kind: input.kind, assignedTo: input.assignedTo ?? null, status: "OPEN", createdAt: now, updatedAt: now });
+    await tx.insert(workOrderTasks).values({ id: taskId, workOrderId: id, sequence, title: input.title, description: input.description || null, required: input.required, kind: input.kind, assignedTo: input.assignedTo ?? null, assetId: input.assetId ?? null, dueAt: dateOrNull(input.dueAt), estimatedMinutes: input.estimatedMinutes ?? null, responseType: input.responseType ?? null, status: "OPEN", createdAt: now, updatedAt: now });
     await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: id, eventType: "TASK_ADDED", note: input.title, actorUserId: actor.id, createdAt: now });
     await tx.insert(auditLogs).values(auditRow({ actor, action: "WORK_ORDER_TASK_ADDED", category: "MAINTENANCE", targetType: "WORK_ORDER", targetId: id, targetName: order.code, description: `Added task ${sequence} to ${order.code}`, newValues: input, meta, createdAt: now }));
     return { id: taskId, sequence };
@@ -162,7 +167,7 @@ export async function updateWorkOrderTask(id: string, taskId: string, input: Tas
     const task = (await tx.select().from(workOrderTasks).where(and(eq(workOrderTasks.id, taskId), eq(workOrderTasks.workOrderId, id))).limit(1))[0];
     if (!task) throw new HttpError(404, "Task not found", "TASK_NOT_FOUND");
     const taskStatus = transitionTask(task.status, input.status, actor);
-    await tx.update(workOrderTasks).set({ status: taskStatus, completedBy: taskStatus === "COMPLETED" ? actor.id : null, completedAt: taskStatus === "COMPLETED" ? now : null, updatedAt: now }).where(eq(workOrderTasks.id, taskId));
+    await tx.update(workOrderTasks).set({ status: taskStatus, result: input.result || task.result, responseValue: input.responseValue || task.responseValue, remarks: input.remarks || task.remarks, actualMinutes: input.actualMinutes ?? task.actualMinutes, evidenceAttachmentId: input.evidenceAttachmentId ?? task.evidenceAttachmentId, completedBy: taskStatus === "COMPLETED" ? actor.id : null, completedAt: taskStatus === "COMPLETED" ? now : null, updatedAt: now }).where(eq(workOrderTasks.id, taskId));
     await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: id, eventType: "TASK_STATUS_CHANGED", note: `${task.title}: ${input.status}`, actorUserId: actor.id, createdAt: now });
     await tx.insert(auditLogs).values(auditRow({ actor, action: "WORK_ORDER_TASK_UPDATED", category: "MAINTENANCE", targetType: "WORK_ORDER_TASK", targetId: taskId, targetName: task.title, description: `Set task to ${input.status}`, previousValues: { status: task.status }, newValues: input, meta, createdAt: now }));
     return { id: taskId, status: taskStatus };
@@ -228,11 +233,12 @@ export async function closeWorkOrder(id: string, input: CloseInput, actor: Actor
   const now = new Date();
   return db.transaction(async (tx) => {
     const order = await orderForMutation(tx, id); const status = transitionWorkOrder(order.status, "CLOSE", { actor, note: input.note });
-    const notification = (await tx.select({ status: maintenanceNotifications.status }).from(maintenanceNotifications).where(eq(maintenanceNotifications.id, order.notificationId)).limit(1))[0];
-    if (!notification) throw new HttpError(404, "Source notification not found", "NOTIFICATION_NOT_FOUND");
-    const notificationStatus = completeNotification(notification.status, actor);
+    const issuedTools = await tx.select({ id: workOrderToolLoans.id }).from(workOrderToolLoans).where(and(eq(workOrderToolLoans.workOrderId, id), eq(workOrderToolLoans.status, "ISSUED"))).limit(1);
+    if (issuedTools.length) throw new HttpError(409, "Return all issued tools before closing the work order", "TOOLS_NOT_RETURNED");
+    const notification = order.notificationId ? (await tx.select({ status: maintenanceNotifications.status }).from(maintenanceNotifications).where(eq(maintenanceNotifications.id, order.notificationId)).limit(1))[0] : null;
+    const notificationStatus = notification ? completeNotification(notification.status, actor) : null;
     await tx.update(workOrders).set({ status, closedAt: now, updatedAt: now, updatedBy: actor.id }).where(eq(workOrders.id, id));
-    await tx.update(maintenanceNotifications).set({ status: notificationStatus, completedAt: now, updatedAt: now, updatedBy: actor.id }).where(eq(maintenanceNotifications.id, order.notificationId));
+    if (notification && notificationStatus && order.notificationId) await tx.update(maintenanceNotifications).set({ status: notificationStatus, completedAt: now, updatedAt: now, updatedBy: actor.id }).where(eq(maintenanceNotifications.id, order.notificationId));
     await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: id, eventType: "WORK_ORDER_CLOSED", fromStatus: order.status, toStatus: status, note: input.note, actorUserId: actor.id, createdAt: now });
     await tx.insert(auditLogs).values(auditRow({ actor, action: "WORK_ORDER_CLOSED", category: "MAINTENANCE", targetType: "WORK_ORDER", targetId: id, targetName: order.code, description: `Closed ${order.code}`, previousValues: { status: order.status }, newValues: { status, note: input.note }, meta, createdAt: now }));
     return { id, status };
