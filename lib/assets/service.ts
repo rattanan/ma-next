@@ -1,15 +1,25 @@
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import type { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
+import { prisma } from "@/lib/prisma";
 import {
   assetCategories, assetCustomFieldDefinitions, assetCustomFieldGroups, assetCustomFieldValues,
   assetDocumentMetadata, assetHierarchyLinks, assets, assetSpareParts, assetTypes, attachments,
   auditLogs, contracts, spareParts, users, workOrders,
 } from "@/lib/db/schema";
 import { HttpError } from "@/lib/http";
+import { auditData } from "@/lib/audit/service";
+import type { AuthenticatedUser } from "@/lib/auth/session";
+import type { RequestMeta } from "@/lib/auth/request";
+import { createNotification } from "@/lib/notifications/service";
+import { logger } from "@/lib/logger";
 import type { z } from "zod";
-import type { assetListQuerySchema } from "./validation";
+import type { assetListQuerySchema, assetMutationSchema } from "./validation";
+import { assertNoHierarchyCycle } from "./validation";
 
 type AssetFilters = z.infer<typeof assetListQuerySchema>;
+type AssetMutation = z.infer<typeof assetMutationSchema>;
 
 const assetSelection = {
   id: assets.id, code: assets.code, name: assets.name, description: assets.description,
@@ -66,7 +76,7 @@ export async function getAssetDetail(id: string) {
     db.select(assetSelection).from(assets).innerJoin(assetTypes, eq(assets.assetTypeId, assetTypes.id)).leftJoin(assetCategories, eq(assets.assetCategoryId, assetCategories.id)).where(eq(assets.parentAssetId, id)).orderBy(asc(assets.code)),
     db.select().from(assetHierarchyLinks).where(eq(assetHierarchyLinks.parentAssetId, id)).orderBy(asc(assetHierarchyLinks.sequence)),
     db.select({ id: assetSpareParts.id, sequence: assetSpareParts.sequence, enabled: assetSpareParts.enabled, requiredQuantity: assetSpareParts.requiredQuantity, note: assetSpareParts.note, code: spareParts.code, name: spareParts.name, description: spareParts.description, unit: spareParts.unit, availableQuantity: spareParts.availableQuantity }).from(assetSpareParts).innerJoin(spareParts, eq(assetSpareParts.sparePartId, spareParts.id)).where(eq(assetSpareParts.assetId, id)).orderBy(asc(assetSpareParts.sequence)),
-    db.select({ id: assetCustomFieldValues.id, value: assetCustomFieldValues.value, definitionId: assetCustomFieldDefinitions.id, name: assetCustomFieldDefinitions.name, label: assetCustomFieldDefinitions.label, description: assetCustomFieldDefinitions.description, fieldType: assetCustomFieldDefinitions.fieldType, unit: assetCustomFieldDefinitions.unit, defaultValue: assetCustomFieldDefinitions.defaultValue, availableValues: assetCustomFieldDefinitions.availableValues, sortOrder: assetCustomFieldDefinitions.sortOrder, groupId: assetCustomFieldGroups.id, groupName: assetCustomFieldGroups.name, groupSortOrder: assetCustomFieldGroups.sortOrder }).from(assetCustomFieldDefinitions).innerJoin(assetCustomFieldGroups, eq(assetCustomFieldDefinitions.groupId, assetCustomFieldGroups.id)).leftJoin(assetCustomFieldValues, and(eq(assetCustomFieldValues.definitionId, assetCustomFieldDefinitions.id), eq(assetCustomFieldValues.assetId, id))).where(asset.assetCategoryId ? eq(assetCustomFieldDefinitions.assetCategoryId, asset.assetCategoryId) : isNull(assetCustomFieldDefinitions.assetCategoryId)).orderBy(asc(assetCustomFieldGroups.sortOrder), asc(assetCustomFieldDefinitions.sortOrder)),
+    db.select({ id: assetCustomFieldValues.id, value: assetCustomFieldValues.value, definitionId: assetCustomFieldDefinitions.id, name: assetCustomFieldDefinitions.name, label: assetCustomFieldDefinitions.label, description: assetCustomFieldDefinitions.description, fieldType: assetCustomFieldDefinitions.fieldType, unit: assetCustomFieldDefinitions.unit, defaultValue: assetCustomFieldDefinitions.defaultValue, availableValues: assetCustomFieldDefinitions.availableValues, sortOrder: assetCustomFieldDefinitions.sortOrder, groupId: assetCustomFieldGroups.id, groupName: assetCustomFieldGroups.name, groupSortOrder: assetCustomFieldGroups.sortOrder }).from(assetCustomFieldDefinitions).innerJoin(assetCustomFieldGroups, eq(assetCustomFieldDefinitions.groupId, assetCustomFieldGroups.id)).leftJoin(assetCustomFieldValues, and(eq(assetCustomFieldValues.definitionId, assetCustomFieldDefinitions.id), eq(assetCustomFieldValues.assetId, id))).where(asset.assetCategoryId ? or(isNull(assetCustomFieldDefinitions.assetCategoryId), eq(assetCustomFieldDefinitions.assetCategoryId, asset.assetCategoryId)) : isNull(assetCustomFieldDefinitions.assetCategoryId)).orderBy(asc(assetCustomFieldGroups.sortOrder), asc(assetCustomFieldDefinitions.sortOrder)),
     db.select({ id: attachments.id, originalName: attachments.originalName, contentType: attachments.contentType, byteSize: attachments.byteSize, storageKey: attachments.storageKey, driver: attachments.driver, createdAt: attachments.createdAt, note: assetDocumentMetadata.note }).from(attachments).leftJoin(assetDocumentMetadata, eq(attachments.id, assetDocumentMetadata.attachmentId)).where(and(eq(attachments.entityType, "ASSET"), eq(attachments.entityId, id), isNull(attachments.deletedAt))).orderBy(desc(attachments.createdAt)),
     db.select({ id: auditLogs.id, action: auditLogs.action, description: auditLogs.description, actorName: auditLogs.actorName, result: auditLogs.result, previousValues: auditLogs.previousValues, newValues: auditLogs.newValues, createdAt: auditLogs.createdAt }).from(auditLogs).where(and(eq(auditLogs.targetType, "ASSET"), eq(auditLogs.targetId, id))).orderBy(desc(auditLogs.createdAt)),
     db.select({ id: workOrders.id, code: workOrders.code, title: workOrders.title, description: workOrders.description, priority: workOrders.priority, status: workOrders.status, assignedTo: workOrders.assignedTo, dueAt: workOrders.dueAt, updatedAt: workOrders.updatedAt }).from(workOrders).where(eq(workOrders.assetId, id)).orderBy(desc(workOrders.updatedAt)),
@@ -88,4 +98,119 @@ export async function getAssetDetail(id: string) {
     workOrders: orders.map((order) => ({ ...order, assignedToName: order.assignedTo ? assigneeNames.get(order.assignedTo) ?? null : null })),
     contract: contract[0] ?? null,
   };
+}
+
+export async function getAssetFormReferences() {
+  const [types, categories, assets, users, contracts, groups, definitions] = await Promise.all([
+    prisma.assetType.findMany({ where: { active: true }, select: { id: true, code: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.assetCategory.findMany({ where: { active: true }, select: { id: true, code: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.asset.findMany({ select: { id: true, code: true, name: true, parentAssetId: true, structureLevel: true, status: true }, orderBy: { code: "asc" } }),
+    prisma.user.findMany({ where: { status: "ACTIVE" }, select: { id: true, fullName: true }, orderBy: { fullName: "asc" } }),
+    prisma.contract.findMany({ select: { id: true, code: true, name: true }, orderBy: { code: "asc" } }),
+    prisma.assetCustomFieldGroup.findMany({ select: { id: true, name: true, sortOrder: true }, orderBy: { sortOrder: "asc" } }),
+    prisma.assetCustomFieldDefinition.findMany({ select: { id: true, assetCategoryId: true, groupId: true, name: true, label: true, description: true, fieldType: true, placeholder: true, defaultValue: true, availableValues: true, unit: true, sortOrder: true, active: true }, orderBy: { sortOrder: "asc" } }),
+  ]);
+  const groupNames = new Map(groups.map((group) => [group.id, group.name]));
+  return { types, categories, assets, users, contracts, customFields: definitions.map((definition) => ({ ...definition, groupName: groupNames.get(definition.groupId) ?? "Additional information" })) };
+}
+
+const emptyToNull = (value?: string | null) => value?.trim() ? value.trim() : null;
+function persistenceData(input: AssetMutation) {
+  const { customFields, ...fields } = input; void customFields;
+  return {
+    ...fields,
+    description: emptyToNull(fields.description), assetCategoryId: fields.assetCategoryId ?? null, parentAssetId: fields.parentAssetId ?? null,
+    ownerUserId: fields.ownerUserId ?? null, contractId: fields.contractId ?? null, primaryImagePath: emptyToNull(fields.primaryImagePath),
+    unit: emptyToNull(fields.unit), serialNumber: emptyToNull(fields.serialNumber), runningHourCode: emptyToNull(fields.runningHourCode),
+    budgetId: emptyToNull(fields.budgetId), gpsCoordinates: emptyToNull(fields.gpsCoordinates), inventoryLocationName: emptyToNull(fields.inventoryLocationName),
+  };
+}
+
+async function validateAssetReferences(tx: Prisma.TransactionClient, input: AssetMutation, currentId?: string) {
+  const [type, category, parent, owner, contract, hierarchy] = await Promise.all([
+    tx.assetType.findUnique({ where: { id: input.assetTypeId }, select: { id: true } }),
+    input.assetCategoryId ? tx.assetCategory.findUnique({ where: { id: input.assetCategoryId }, select: { id: true } }) : null,
+    input.parentAssetId ? tx.asset.findUnique({ where: { id: input.parentAssetId }, select: { id: true } }) : null,
+    input.ownerUserId ? tx.user.findUnique({ where: { id: input.ownerUserId }, select: { id: true, status: true } }) : null,
+    input.contractId ? tx.contract.findUnique({ where: { id: input.contractId }, select: { id: true } }) : null,
+    tx.asset.findMany({ select: { id: true, parentAssetId: true } }),
+  ]);
+  if (!type) throw new HttpError(400, "Asset type does not exist", "INVALID_ASSET_TYPE");
+  if (input.assetCategoryId && !category) throw new HttpError(400, "Asset category does not exist", "INVALID_ASSET_CATEGORY");
+  if (input.parentAssetId && !parent) throw new HttpError(400, "Parent asset does not exist", "INVALID_PARENT_ASSET");
+  if (input.ownerUserId && (!owner || owner.status !== "ACTIVE")) throw new HttpError(400, "Assigned owner must be an active user", "INVALID_ASSET_OWNER");
+  if (input.contractId && !contract) throw new HttpError(400, "Contract does not exist", "INVALID_ASSET_CONTRACT");
+  if (currentId) assertNoHierarchyCycle(currentId, input.parentAssetId ?? null, new Map(hierarchy.map((item) => [item.id, item.parentAssetId])));
+}
+
+function allowedOptions(value?: string | null) {
+  if (!value) return [];
+  try { const parsed = JSON.parse(value); if (Array.isArray(parsed)) return parsed.map(String); } catch { /* legacy values can be comma-delimited */ }
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+async function customValueRows(tx: Prisma.TransactionClient, assetId: string, input: AssetMutation) {
+  const submitted = Object.entries(input.customFields).filter(([, value]) => value.trim());
+  if (!submitted.length) return [];
+  const definitions = await tx.assetCustomFieldDefinition.findMany({ where: { id: { in: submitted.map(([id]) => id) } } });
+  const byId = new Map(definitions.map((definition) => [definition.id, definition]));
+  return submitted.map(([definitionId, rawValue]) => {
+    const definition = byId.get(definitionId); const value = rawValue.trim();
+    if (!definition || (definition.assetCategoryId && definition.assetCategoryId !== input.assetCategoryId)) throw new HttpError(400, "Custom field does not apply to the selected category", "INVALID_ASSET_CUSTOM_FIELD");
+    if (definition.fieldType === "NUMBER" && !Number.isFinite(Number(value))) throw new HttpError(400, `${definition.label} must be numeric`, "INVALID_ASSET_CUSTOM_VALUE");
+    if (definition.fieldType === "DATE" && Number.isNaN(Date.parse(value))) throw new HttpError(400, `${definition.label} must be a valid date`, "INVALID_ASSET_CUSTOM_VALUE");
+    const options = definition.fieldType === "ARRAY" ? allowedOptions(definition.availableValues) : [];
+    if (options.length && !options.includes(value)) throw new HttpError(400, `${definition.label} must use an available option`, "INVALID_ASSET_CUSTOM_VALUE");
+    return { id: randomUUID(), assetId, definitionId, value };
+  });
+}
+
+export async function createAssetRecord(input: AssetMutation, actor: AuthenticatedUser, meta: RequestMeta) {
+  const id = randomUUID(); const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    await validateAssetReferences(tx, input);
+    const values = await customValueRows(tx, id, input);
+    await tx.asset.create({ data: { id, ...persistenceData(input), createdAt: now, updatedAt: now, createdBy: actor.id, updatedBy: actor.id } });
+    if (values.length) await tx.assetCustomFieldValue.createMany({ data: values });
+    await tx.auditLog.create({ data: auditData({ action: "ASSET_CREATED", category: "ASSETS", targetType: "ASSET", targetId: id, targetName: input.code, description: `Created asset ${input.code}`, newValues: input }, actor, meta) });
+  });
+  if (input.ownerUserId) await notifyAssetOwner(id, input.code, input.name, input.ownerUserId, actor, meta);
+  return { id, code: input.code };
+}
+
+export async function updateAssetRecord(id: string, input: AssetMutation, actor: AuthenticatedUser, meta: RequestMeta) {
+  const now = new Date();
+  const previous = await prisma.$transaction(async (tx) => {
+    const existing = await tx.asset.findUnique({ where: { id } });
+    if (!existing) throw new HttpError(404, "Asset not found", "ASSET_NOT_FOUND");
+    if (existing.parentAssetId !== input.parentAssetId && !actor.permissions.includes("ASSET_HIERARCHY_MANAGE")) throw new HttpError(403, "Asset hierarchy permission is required to change the parent", "ASSET_HIERARCHY_FORBIDDEN");
+    if (Object.keys(input.customFields).length && !actor.permissions.includes("ASSET_CUSTOM_FIELDS_MANAGE")) throw new HttpError(403, "Custom-field permission is required", "ASSET_CUSTOM_FIELDS_FORBIDDEN");
+    await validateAssetReferences(tx, input, id);
+    const values = await customValueRows(tx, id, input);
+    await tx.asset.update({ where: { id }, data: { ...persistenceData(input), updatedAt: now, updatedBy: actor.id } });
+    await tx.assetCustomFieldValue.deleteMany({ where: { assetId: id } });
+    if (values.length) await tx.assetCustomFieldValue.createMany({ data: values });
+    await tx.auditLog.create({ data: auditData({ action: "ASSET_UPDATED", category: "ASSETS", targetType: "ASSET", targetId: id, targetName: input.code, description: `Updated asset ${input.code}`, previousValues: existing, newValues: input }, actor, meta) });
+    return existing;
+  });
+  if (input.ownerUserId && input.ownerUserId !== previous.ownerUserId) await notifyAssetOwner(id, input.code, input.name, input.ownerUserId, actor, meta);
+  return { id, code: input.code };
+}
+
+export async function archiveAssetRecord(id: string, reason: string, actor: AuthenticatedUser, meta: RequestMeta) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.asset.findUnique({ where: { id } });
+    if (!existing) throw new HttpError(404, "Asset not found", "ASSET_NOT_FOUND");
+    if (existing.status === "RETIRED") return { id, status: "RETIRED" as const };
+    const children = await tx.asset.count({ where: { parentAssetId: id, status: { not: "RETIRED" } } });
+    if (children) throw new HttpError(409, "Archive active child assets first or move them to another parent", "ASSET_HAS_ACTIVE_CHILDREN");
+    await tx.asset.update({ where: { id }, data: { status: "RETIRED", updatedAt: new Date(), updatedBy: actor.id } });
+    await tx.auditLog.create({ data: auditData({ action: "ASSET_ARCHIVED", category: "ASSETS", targetType: "ASSET", targetId: id, targetName: existing.code, description: reason, previousValues: { status: existing.status }, newValues: { status: "RETIRED", reason } }, actor, meta) });
+    return { id, status: "RETIRED" as const };
+  });
+}
+
+async function notifyAssetOwner(id: string, code: string, name: string, ownerUserId: string, actor: AuthenticatedUser, meta: RequestMeta) {
+  try { await createNotification({ type: "ASSET_ASSIGNED", title: `Asset ${code} assigned to you`, message: name, actionUrl: `/assets/${id}`, sourceType: "ASSET", sourceId: id, recipientIds: [ownerUserId] }, actor, meta); }
+  catch (error) { logger.error("Asset assignment notification failed", { id, error: error instanceof Error ? error.message : "Unknown error" }); }
 }

@@ -2,7 +2,8 @@ import { z } from "zod";
 import { assetCriticalityValues, assetStatusValues, assetStructureLevelValues, equipmentOperatingStatusValues, maintenanceSeverityValues, notificationDecisionValues, notificationPriorityValues, notificationTypeValues, verificationDecisionValues, workOrderSourceTypeValues, workOrderStatusValues, workOrderTypeValues, workTaskKindValues } from "../db/schema";
 
 const optionalText = (max: number) => z.string().trim().max(max).optional().default("");
-const optionalId = z.string().uuid().nullable().optional();
+const optionalId = z.string().uuid().nullable().optional().or(z.literal("").transform(() => null));
+const nullableInteger = (minimum = 0) => z.preprocess((value) => value === "" ? null : value, z.coerce.number().int().min(minimum).nullable().optional());
 
 export const assetSchema = z.object({
   code: z.string().trim().min(2).max(60).transform((value) => value.toUpperCase()),
@@ -20,13 +21,13 @@ export const assetSchema = z.object({
   primaryImagePath: z.string().trim().max(500).nullable().optional(),
   unit: z.string().trim().max(45).nullable().optional(),
   serialNumber: z.string().trim().max(45).nullable().optional(),
-  maintenanceInterval: z.coerce.number().int().nonnegative().nullable().optional(),
+  maintenanceInterval: nullableInteger(),
   runningHourCode: z.string().trim().max(45).nullable().optional(),
   budgetId: z.string().trim().max(45).nullable().optional(),
   gpsCoordinates: z.string().trim().max(90).nullable().optional(),
-  costCenterLegacyId: z.coerce.number().int().positive().nullable().optional(),
-  budgetReferenceLegacyId: z.coerce.number().int().positive().nullable().optional(),
-  inventoryLocationLegacyId: z.coerce.number().int().positive().nullable().optional(),
+  costCenterLegacyId: nullableInteger(1),
+  budgetReferenceLegacyId: nullableInteger(1),
+  inventoryLocationLegacyId: nullableInteger(1),
   inventoryLocationName: z.string().trim().max(190).nullable().optional(),
 });
 

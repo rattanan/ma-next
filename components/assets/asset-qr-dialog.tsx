@@ -47,7 +47,7 @@ export function AssetQrDialog({ assetId, assetCode }: { assetId: string; assetCo
   async function share() { if (navigator.share) await navigator.share({ title: `${assetCode} asset`, url: detailUrl }); else await copy(); }
 
   return <Dialog onOpenChange={(open) => { if (!open) setScanning(false); }}>
-    <DialogTrigger asChild><Button variant="outline" className="min-h-11"><QrCode className="size-4" /> QR code</Button></DialogTrigger>
+    <DialogTrigger asChild><Button variant="outline" className="min-h-11 border-white bg-white text-[#0b2a4a] hover:bg-blue-50 hover:text-[#0b2a4a] focus-visible:ring-white/70"><QrCode className="size-4" /> QR code</Button></DialogTrigger>
     <DialogContent className="max-h-[92vh] max-w-lg overflow-y-auto">
       <DialogTitle>{assetCode} mobile QR</DialogTitle>
       <DialogDescription>Scan this label to open the canonical asset record, or use the device camera to scan another asset.</DialogDescription>

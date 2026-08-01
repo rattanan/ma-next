@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { assetStatusValues, assetStructureLevelValues } from "@/lib/db/schema";
+import { assetSchema } from "@/lib/maintenance/validation";
 
 const optionalFilter = z.string().trim().max(100).optional().default("");
 
@@ -11,6 +12,14 @@ export const assetListQuerySchema = z.object({
   level: z.enum(assetStructureLevelValues).or(z.literal("")).optional().default(""),
   parentId: z.string().uuid().or(z.literal("")).optional().default(""),
 });
+
+export const assetMutationSchema = assetSchema.extend({
+  customFields: z.record(z.string().uuid(), z.string().trim().max(500)).default({}),
+}).strict();
+
+export const assetArchiveSchema = z.object({
+  reason: z.string().trim().min(3).max(1000),
+}).strict();
 
 export function normalizeLegacyAssetStatus(status: string) {
   const normalized = status.trim().toUpperCase().replaceAll(" ", "_");

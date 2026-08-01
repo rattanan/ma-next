@@ -84,9 +84,15 @@ This inventory is the implementation gate for the Asset Management slice. It pre
 | --- | --- |
 | `GET /assets` | Responsive register and searchable hierarchy workspace. |
 | `GET /assets/[id]` | Canonical detail URL used by QR codes and deep links. |
+| `GET /assets/new` | Permission-aware create form containing all preserved asset fields and category custom fields. |
+| `GET /assets/[id]/edit` | Permission-aware edit form with hierarchy-cycle validation. |
 | `GET /assets/[id]?tab=general|hierarchy|spare-parts|documents|history|work-orders` | Stable tab deep links. |
 | `GET /api/assets` | Search/filter/list/tree payload (`q`, `status`, `type`, `category`, `level`, `parentId`). |
+| `POST /api/assets` | Create an audited asset and custom values; notify an assigned owner. |
 | `GET /api/assets/[id]` | Full asset detail with all tab relationships. |
+| `PUT /api/assets/[id]` | Transactionally update fields, hierarchy and category custom values. |
+| `DELETE /api/assets/[id]` | Non-destructive archive to `RETIRED`; active children block the command. |
+| `GET /api/assets/reference-data` | Authorized types, categories, parents, users, contracts and custom definitions for forms. |
 | `GET /api/assets/[id]/qr` | QR SVG for canonical detail URL. |
 | `GET /api/attachments?entityType=ASSET&entityId=:id` | Authorized asset attachment metadata. |
 | `POST /api/attachments` | Authorized attachment registration using the shared attachment service. |
@@ -96,8 +102,8 @@ The existing `GET/POST /api/maintenance/assets` remains compatible for the corre
 ## 6. Permissions
 
 - `ASSET_READ` — list, search, filter, hierarchy, detail, images, custom values, linked spares/contracts/work orders.
-- `ASSET_CREATE` — create asset records (future mutation UI; service-ready permission).
-- `ASSET_UPDATE` — edit fields/status/image/assignment/contract (future mutation UI).
+- `ASSET_CREATE` — create asset records and category custom values.
+- `ASSET_UPDATE` — edit fields/status/image/assignment/contract.
 - `ASSET_ARCHIVE` — archive rather than silently cascade dependent data.
 - `ASSET_HIERARCHY_MANAGE` — change direct parent and BOM links.
 - `ASSET_CUSTOM_FIELDS_MANAGE` — manage definitions/groups and asset values.
@@ -124,3 +130,5 @@ The existing `GET/POST /api/maintenance/assets` remains compatible for the corre
 15. Loading uses skeletons; zero results, absent tab relations, fetch failure/retry, missing asset, and insufficient permission each have distinct accessible states.
 16. API reads return 401 without a session and 403 without `ASSET_READ`; the protected pages never expose asset data before authorization.
 17. Schema/validation tests prove the complete legacy field set is accepted and code normalization, status mapping, hierarchy cycles, filter parsing, and custom values behave as documented.
+18. Authorized users can create and edit every preserved field; duplicate code, invalid references and invalid custom values return field-safe server errors and write no partial record.
+19. Archive requires explicit confirmation and `ASSET_ARCHIVE`, retains the record/history as `RETIRED`, rejects active-child hierarchies and never cascades operational relationships.

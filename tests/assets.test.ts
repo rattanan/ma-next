@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertNoHierarchyCycle, assetListQuerySchema, normalizeLegacyAssetStatus } from "../lib/assets/validation";
+import { assertNoHierarchyCycle, assetArchiveSchema, assetListQuerySchema, assetMutationSchema, normalizeLegacyAssetStatus } from "../lib/assets/validation";
 import { assetSchema } from "../lib/maintenance/validation";
 
 const typeId = "11111111-1111-4111-8111-111111111111";
@@ -34,5 +34,12 @@ describe("asset management baseline", () => {
     expect(assertNoHierarchyCycle(assetId, parentId, parents)).toBe(true);
     expect(() => assertNoHierarchyCycle(assetId, assetId, parents)).toThrow(/cycle/);
     expect(() => assertNoHierarchyCycle(assetId, "44444444-4444-4444-8444-444444444444", parents)).toThrow(/cycle/);
+  });
+
+  it("validates complete create/update payloads and non-destructive archive reasons", () => {
+    const parsed = assetMutationSchema.parse({ code: "pump-02", name: "Pump 02", assetTypeId: typeId, structureLevel: "EQUIPMENT", location: "Pump room", maintenanceInterval: "", costCenterLegacyId: "", customFields: { "55555555-5555-4555-8555-555555555555": "1450" } });
+    expect(parsed).toMatchObject({ code: "PUMP-02", maintenanceInterval: null, costCenterLegacyId: null });
+    expect(assetArchiveSchema.parse({ reason: "Asset permanently decommissioned" }).reason).toContain("decommissioned");
+    expect(() => assetArchiveSchema.parse({ reason: "" })).toThrow();
   });
 });

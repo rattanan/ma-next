@@ -5,7 +5,7 @@ Updated 2026-08-01.
 | Slice | Status | Evidence | Remaining operational step |
 |---|---|---|---|
 | Foundation | Implemented | Auth, organization, master data, audit, attachments, notifications | Deploy per environment |
-| Asset Management | Implemented and deployed to DEV | Asset list/search/hierarchy/detail, migration 0002 and demo hierarchy seed | Validate with DEV users |
+| Asset Management | Implemented and deployed to DEV | Asset list/search/hierarchy/detail, full create/edit forms, audited non-destructive archive, custom-field round trip, migration 0002 and demo hierarchy seed | Validate CRUD and archive permissions with DEV users |
 | Corrective Maintenance | Implemented, deployed to DEV and locally verified | Central workflow, notification-to-close UI/services, migration 0003, automated test layers | Execute stakeholder acceptance flow in DEV |
 | Work Order module | Implemented and deployed to DEV | List/board/calendar, manual/source creation, planning, assignment history, execution tabs, append-only backlog, labor/OT, material adapter, tools, safety/LOTO, acceptance, completion, verification, closure, history; migration 0004 and demo seed | Stakeholder parity review of legacy print layouts, OT overlap rules and inventory posting |
 
