@@ -1,2 +1,5 @@
-import { NotificationCenter } from "@/components/foundation/notification-center";
-export default function Page() { return <NotificationCenter />; }
+import GovernedWorkflowWorkspace from "@/components/maintenance/governed-workflow-workspace";
+
+export default function NotificationsPage() {
+  return <GovernedWorkflowWorkspace notificationOnly />;
+}

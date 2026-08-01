@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { Bell, Boxes, Building2, ClipboardCheck, ClipboardList, Database, LogOut, Menu, ShieldCheck, UserRound, Users, Wrench } from "lucide-react";
+import { Bell, Boxes, Building2, ClipboardCheck, ClipboardList, ClipboardPlus, Database, LogOut, Menu, ShieldCheck, UserRound, Users, Wrench } from "lucide-react";
 import { MaLogo } from "@/components/brand/ma-logo";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -14,12 +14,13 @@ type ShellUser = { fullName: string; role: string; permissions: string[] };
 
 const navigation = [
   { href: "/assets", label: "Assets", icon: Boxes, permission: "ASSET_READ" },
+  { href: "/notifications", label: "แจ้งบำรุงรักษา", icon: ClipboardPlus, permission: "NOTIFICATION_VIEW" },
   { href: "/maintenance", label: "Maintenance", icon: Wrench, permission: "VIEW_MAINTENANCE" },
   { href: "/work-orders", label: "Work Orders", icon: ClipboardList, permission: "VIEW_MAINTENANCE" },
   { href: "/approvals", label: "Approve Center", icon: ClipboardCheck, permission: "NOTIFICATION_REVIEW", approvalBadge: true },
   { href: "/organization", label: "Organization", icon: Building2, permission: "VIEW_ORGANIZATION" },
   { href: "/settings/master-data", label: "Master data", icon: Database, permission: "VIEW_MASTER_DATA" },
-  { href: "/notifications", label: "Notifications", icon: Bell, permission: "VIEW_NOTIFICATIONS" },
+  { href: "/inbox", label: "System Inbox", icon: Bell, permission: "VIEW_NOTIFICATIONS" },
   { href: "/admin/users", label: "Users & access", icon: Users, permission: "MANAGE_USERS" },
   { href: "/admin/audit-logs", label: "Audit log", icon: ShieldCheck, permission: "VIEW_AUDIT_LOGS" },
   { href: "/profile", label: "My profile", icon: UserRound },
