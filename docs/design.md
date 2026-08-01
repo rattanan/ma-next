@@ -51,7 +51,7 @@ shadcn ถูกตั้งค่าแล้วด้วย style `new-york`, 
 
 - `MA Mark — Flat`: ตัวอักษร navy/white + swoosh cobalt ใช้ใน sidebar, header, favicon และ loading; ไม่มี bevel, glow หรือเงาหนัก
 - `MA Mark — Dimensional`: ผิว silver/slate แบบ subtle และ swoosh blue/cyan ใช้เฉพาะ landing/login hero และสื่อการตลาด
-- `MA Lockup`: mark + “MA Maintenance Management System”; Thai descriptor เป็นข้อความ HTML ไม่ฝังในภาพ
+- `MA Lockup`: mark + “MA Next — Intelligence Maintenance Management Platform”; Thai descriptor เป็นข้อความ HTML ไม่ฝังในภาพ
 - ใช้ไฟล์ SVG เป็นหลัก, PNG/WebP สำหรับ dimensional artwork เท่านั้น; ต้องมี light, dark, monochrome และ icon-only variant
 - clear space รอบ mark อย่างน้อย 25% ของความสูง; ขนาดขั้นต่ำ icon 24 px, lockup บนจอ 120 px; ห้ามบีบสัดส่วน, หมุน swoosh, เติม glow ใน shell หรือเปลี่ยนสีตาม status
 - โลโก้ในภาพอ้างอิงเป็น direction ไม่ใช่ไฟล์ production ที่นำไป trace โดยอัตโนมัติ ต้องยืนยันสิทธิ์แบรนด์/ทรัพย์สินและอนุมัติ master artwork ก่อน implement

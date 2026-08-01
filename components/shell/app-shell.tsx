@@ -27,7 +27,7 @@ function Navigation({ user }: { user: ShellUser }) {
 
   return (
     <div className="flex h-full flex-col">
-      <Link href="/" className="flex min-h-20 items-center border-b border-white/10 px-1" aria-label="MA Maintenance home">
+      <Link href="/" className="flex min-h-20 items-center border-b border-white/10 px-1" aria-label="MA Next home">
         <MaLogo inverse size="sm" />
       </Link>
       <nav className="flex-1 space-y-1 py-5" aria-label="Primary navigation">
@@ -73,7 +73,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
               <Navigation user={user} />
             </DialogContent>
           </Dialog>
-          <Link href="/" className="lg:hidden" aria-label="MA Maintenance home"><MaLogo compact size="sm" /></Link>
+          <Link href="/" className="lg:hidden" aria-label="MA Next home"><MaLogo compact size="sm" /></Link>
           <div className="min-w-0 flex-1"><Breadcrumbs /></div>
           <Button variant="ghost" size="icon" onClick={logout} aria-label="Sign out"><LogOut className="size-5" /></Button>
         </header>

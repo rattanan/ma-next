@@ -22,7 +22,7 @@ export function MaLogo({ className, compact = false, inverse = false, size = "md
   const shadowId = `${id}-shadow`;
 
   return (
-    <span className={cn("inline-flex shrink-0 items-center gap-3", className)} aria-label="MA Maintenance Management System">
+    <span className={cn("inline-flex shrink-0 items-center gap-3", className)} aria-label="MA Next — Intelligence Maintenance Management Platform">
       <svg className={cn("shrink-0 overflow-visible", scale.mark)} viewBox="0 0 168 72" role="img" aria-hidden="true">
         <defs>
           <linearGradient id={metalId} x1="0" y1="0" x2="0.8" y2="1">
@@ -49,8 +49,8 @@ export function MaLogo({ className, compact = false, inverse = false, size = "md
       </svg>
       {!compact && (
         <span className="min-w-0 leading-none">
-          <strong className={cn("block whitespace-nowrap font-bold tracking-[-.02em]", scale.title, inverse ? "text-white" : "text-[#0b2a4a]")}>MA Maintenance</strong>
-          <small className={cn("mt-1 block whitespace-nowrap font-medium tracking-[.04em]", scale.subtitle, inverse ? "text-blue-100/75" : "text-slate-500")}>Management System</small>
+          <strong className={cn("block whitespace-nowrap font-bold tracking-[-.02em]", scale.title, inverse ? "text-white" : "text-[#0b2a4a]")}>MA Next</strong>
+          <small className={cn("mt-1 block whitespace-nowrap font-medium tracking-[.04em]", scale.subtitle, inverse ? "text-blue-100/75" : "text-slate-500")}>Intelligence Maintenance Management Platform</small>
         </span>
       )}
     </span>

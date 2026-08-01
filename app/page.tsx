@@ -87,7 +87,7 @@ export default async function LandingPage() {
     <main className="min-h-screen overflow-hidden bg-white text-slate-950">
       <nav className="relative z-30 border-b border-slate-200 bg-white/95 backdrop-blur" aria-label="เมนูหลัก">
         <div className="mx-auto flex min-h-20 max-w-[90rem] items-center justify-between gap-5 px-5 md:px-8">
-          <Link href="/" aria-label="หน้าแรก MA Maintenance"><MaLogo size="md" /></Link>
+          <Link href="/" aria-label="หน้าแรก MA Next"><MaLogo size="md" /></Link>
           <div className="hidden items-center gap-7 text-sm font-semibold text-slate-600 lg:flex">
             <a href="#copilot" className="transition hover:text-blue-700">AI Copilot</a>
             <a href="#capabilities" className="transition hover:text-blue-700">ความสามารถ</a>
