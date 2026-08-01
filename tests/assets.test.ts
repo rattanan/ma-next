@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertNoHierarchyCycle, assetArchiveSchema, assetHierarchyLinkSchema, assetListQuerySchema, assetMutationSchema, assetSparePartLinkSchema, normalizeLegacyAssetStatus } from "../lib/assets/validation";
+import { assertNoHierarchyCycle, assetArchiveSchema, assetHierarchyLinkSchema, assetListQuerySchema, assetMutationSchema, assetSearchQuerySchema, assetSparePartLinkSchema, assetTypeSearchQuerySchema, normalizeLegacyAssetStatus } from "../lib/assets/validation";
 import { assetSchema } from "../lib/maintenance/validation";
 
 const typeId = "11111111-1111-4111-8111-111111111111";
@@ -27,6 +27,10 @@ describe("asset management baseline", () => {
   it("parses composable list filters and rejects unsupported values", () => {
     expect(assetListQuerySchema.parse({ q: "pump", status: "ACTIVE", level: "COMPONENT", type: typeId })).toMatchObject({ q: "pump", status: "ACTIVE", level: "COMPONENT", type: typeId });
     expect(assetListQuerySchema.safeParse({ status: "PLACEMENT" }).success).toBe(false);
+    expect(assetSearchQuerySchema.parse({ q: "PU", activeOnly: "true", limit: "20" })).toMatchObject({ q: "PU", activeOnly: true, limit: 20 });
+    expect(assetSearchQuerySchema.safeParse({ q: "PU", limit: "21" }).success).toBe(false);
+    expect(assetTypeSearchQuerySchema.parse({ q: "PU", limit: "20" })).toMatchObject({ q: "PU", limit: 20 });
+    expect(assetTypeSearchQuerySchema.safeParse({ q: "P", limit: "21" }).success).toBe(false);
   });
 
   it("accepts an acyclic parent and rejects a direct or indirect cycle", () => {

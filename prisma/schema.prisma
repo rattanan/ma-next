@@ -551,6 +551,8 @@ model Asset {
   createdBy String @map("created_by") @db.VarChar(36)
   updatedBy String @map("updated_by") @db.VarChar(36)
   @@index([status])
+  @@index([name], map: "assets_name_idx")
+  @@index([location], map: "assets_location_idx")
   @@index([assetTypeId])
   @@index([parentAssetId])
   @@index([structureLevel])

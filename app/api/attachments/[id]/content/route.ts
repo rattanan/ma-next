@@ -16,6 +16,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const root = path.join(process.cwd(), "storage", "uploads");
     const resolved = path.resolve(root, attachment.storageKey);
     if (!resolved.startsWith(`${path.resolve(root)}${path.sep}`)) throw new HttpError(400, "Invalid storage key", "INVALID_STORAGE_KEY");
-    return new Response(await readFile(resolved), { headers: { "content-type": attachment.contentType, "cache-control": "private, max-age=300", "content-disposition": `inline; filename="${attachment.originalName.replaceAll('"', '')}"` } });
+    const disposition = request.nextUrl.searchParams.get("download") === "1" ? "attachment" : "inline";
+    return new Response(await readFile(resolved), { headers: { "content-type": attachment.contentType, "cache-control": "private, max-age=300", "content-disposition": `${disposition}; filename="${attachment.originalName.replaceAll('"', '')}"` } });
   } catch (error) { return apiError(error, meta.requestId); }
 }

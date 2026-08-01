@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { and, asc, count, desc, eq, gte, like, lt, lte, or } from "drizzle-orm";
 import type { z } from "zod";
 import { db } from "@/lib/db";
+import { prisma } from "@/lib/prisma";
 import {
   assets, auditLogs, workOrderAcceptances, workOrderAssignments, workOrderBacklogEvents, workOrderEvents,
   workOrderTasks, workOrderToolLoans, workOrders, type WorkOrderStatus,
@@ -38,6 +39,14 @@ const audit = (actor: Actor, meta: RequestMeta, action: string, order: { id: str
   result: "SUCCESS" as const, description, previousValues: previousValues === undefined ? undefined : JSON.stringify(maskSensitive(previousValues)), newValues: newValues === undefined ? undefined : JSON.stringify(maskSensitive(newValues)),
   ipAddress: meta.ipAddress, userAgent: meta.userAgent, requestId: meta.requestId, createdAt: new Date(),
 });
+
+export async function getWorkOrderCreateReferences() {
+  const [users, departments] = await Promise.all([
+    prisma.user.findMany({ where: { status: "ACTIVE" }, select: { id: true, fullName: true }, orderBy: { fullName: "asc" } }),
+    prisma.department.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+  ]);
+  return { users, departments };
+}
 
 export async function listWorkOrders(input: ListInput) {
   const conditions = [];

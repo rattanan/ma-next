@@ -271,13 +271,14 @@ export async function getGovernedTimeline(entityType: "NOTIFICATION" | "WORK_ORD
 
 export async function listGovernedQueue(actor: Actor) {
   requireActorPermission(actor, "VIEW_MAINTENANCE");
-  const [notificationRows, orderRows, technicianRows, assetRows] = await Promise.all([
+  const [notificationRows, orderRows, technicianRows] = await Promise.all([
     db.select().from(maintenanceNotifications).orderBy(desc(maintenanceNotifications.updatedAt)),
     db.select().from(workOrders).orderBy(desc(workOrders.updatedAt)),
     prisma.user.findMany({ where: { status: "ACTIVE", roles: { some: { role: { code: "TECHNICIAN", active: true } } } }, select: { id: true, fullName: true }, orderBy: { fullName: "asc" } }),
-    db.select({ id: assets.id, code: assets.code, name: assets.name, location: assets.location }).from(assets).where(eq(assets.status, "ACTIVE")).orderBy(asc(assets.code)),
   ]);
   const notifications = notificationRows.filter((row) => canAccessScope(actor, row) || row.requestedBy === actor.id);
   const workOrderRows = orderRows.filter((row) => canAccessScope(actor, row) && (actor.role !== "TECHNICIAN" || row.assignedTo === actor.id));
+  const referencedAssetIds = [...new Set([...notifications.map((row) => row.assetId), ...workOrderRows.map((row) => row.assetId)])];
+  const assetRows = referencedAssetIds.length ? await db.select({ id: assets.id, code: assets.code, name: assets.name, location: assets.location }).from(assets).where(inArray(assets.id, referencedAssetIds)).orderBy(asc(assets.code)) : [];
   return { notifications, workOrders: workOrderRows, technicians: actor.permissions.includes("WORK_ORDER_ASSIGN") ? technicianRows : [], assets: assetRows, generatedAt: new Date() };
 }

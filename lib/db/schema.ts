@@ -247,6 +247,8 @@ export const assets = mysqlTable("assets", {
 }, (table) => [
   uniqueIndex("assets_code_uq").on(table.code),
   uniqueIndex("assets_legacy_source_uq").on(table.legacySourceId),
+  index("assets_name_idx").on(table.name),
+  index("assets_location_idx").on(table.location),
   index("assets_status_idx").on(table.status),
   index("assets_type_idx").on(table.assetTypeId),
   index("assets_parent_idx").on(table.parentAssetId),

@@ -15,10 +15,12 @@ import type { RequestMeta } from "@/lib/auth/request";
 import { createNotification } from "@/lib/notifications/service";
 import { logger } from "@/lib/logger";
 import type { z } from "zod";
-import type { assetHierarchyLinkSchema, assetListQuerySchema, assetMutationSchema, assetSparePartLinkSchema } from "./validation";
+import type { assetHierarchyLinkSchema, assetListQuerySchema, assetMutationSchema, assetSearchQuerySchema, assetSparePartLinkSchema, assetTypeSearchQuerySchema } from "./validation";
 import { assertNoHierarchyCycle } from "./validation";
 
 type AssetFilters = z.infer<typeof assetListQuerySchema>;
+type AssetSearchQuery = z.infer<typeof assetSearchQuerySchema>;
+type AssetTypeSearchQuery = z.infer<typeof assetTypeSearchQuerySchema>;
 type AssetMutation = z.infer<typeof assetMutationSchema>;
 type HierarchyLinkMutation = z.infer<typeof assetHierarchyLinkSchema>;
 type SparePartLinkMutation = z.infer<typeof assetSparePartLinkSchema>;
@@ -32,13 +34,40 @@ const assetSelection = {
   serialNumber: assets.serialNumber, inventoryLocationName: assets.inventoryLocationName,
 };
 
+export async function searchAssetOptions(query: AssetSearchQuery) {
+  const term = query.q.trim();
+  if (term.length < 2 && !query.selectedId) return { items: [], minimumCharacters: 2, limit: query.limit };
+  const filters: Prisma.AssetWhereInput[] = [];
+  if (query.excludeId) filters.push({ id: { not: query.excludeId } });
+  if (query.selectedId && term.length < 2) filters.push({ id: query.selectedId });
+  else {
+    if (query.activeOnly) filters.push({ status: "ACTIVE" });
+    filters.push({ OR: [{ code: { startsWith: term } }, { name: { startsWith: term } }, { location: { startsWith: term } }] });
+  }
+  const items = await prisma.asset.findMany({ where: { AND: filters }, select: { id: true, code: true, name: true, location: true, structureLevel: true, status: true }, orderBy: [{ code: "asc" }], take: query.limit });
+  return { items, minimumCharacters: 2, limit: query.limit };
+}
+
+export async function searchAssetTypeOptions(query: AssetTypeSearchQuery) {
+  const term = query.q.trim();
+  if (term.length < 2 && !query.selectedId) return { items: [], minimumCharacters: 2, limit: query.limit };
+  const items = await prisma.assetType.findMany({
+    where: query.selectedId && term.length < 2
+      ? { id: query.selectedId }
+      : { active: true, OR: [{ code: { startsWith: term } }, { name: { startsWith: term } }] },
+    select: { id: true, code: true, name: true },
+    orderBy: [{ code: "asc" }],
+    take: query.limit,
+  });
+  return { items, minimumCharacters: 2, limit: query.limit };
+}
+
 function contains(value: unknown, query: string) { return String(value ?? "").toLocaleLowerCase().includes(query); }
 
 export async function listAssets(filters: AssetFilters) {
-  const [rows, customRows, types, categories, parts] = await Promise.all([
+  const [rows, customRows, categories, parts] = await Promise.all([
     db.select(assetSelection).from(assets).innerJoin(assetTypes, eq(assets.assetTypeId, assetTypes.id)).leftJoin(assetCategories, eq(assets.assetCategoryId, assetCategories.id)).orderBy(asc(assets.code)),
     filters.q ? db.select({ assetId: assetCustomFieldValues.assetId, value: assetCustomFieldValues.value }).from(assetCustomFieldValues) : Promise.resolve([]),
-    db.select({ id: assetTypes.id, code: assetTypes.code, name: assetTypes.name }).from(assetTypes).where(eq(assetTypes.active, true)).orderBy(asc(assetTypes.name)),
     db.select({ id: assetCategories.id, code: assetCategories.code, name: assetCategories.name }).from(assetCategories).where(eq(assetCategories.active, true)).orderBy(asc(assetCategories.name)),
     db.select({ id: spareParts.id, code: spareParts.code, name: spareParts.name, unit: spareParts.unit, availableQuantity: spareParts.availableQuantity }).from(spareParts).orderBy(asc(spareParts.code)),
   ]);
@@ -58,7 +87,7 @@ export async function listAssets(filters: AssetFilters) {
     const visited = new Set<string>();
     while (cursor && !visited.has(cursor)) { visited.add(cursor); visibleIds.add(cursor); cursor = byId.get(cursor)?.parentAssetId; }
   }
-  return { assets: rows, resultIds, visibleIds: [...visibleIds], assetTypes: types, assetCategories: categories, spareParts: parts };
+  return { assets: rows, resultIds, visibleIds: [...visibleIds], assetCategories: categories, spareParts: parts };
 }
 
 export async function getAssetDetail(id: string) {
@@ -104,10 +133,9 @@ export async function getAssetDetail(id: string) {
 }
 
 export async function getAssetFormReferences() {
-  const [types, categories, assets, users, contracts, groups, definitions, parts] = await Promise.all([
+  const [types, categories, users, contracts, groups, definitions, parts] = await Promise.all([
     prisma.assetType.findMany({ where: { active: true }, select: { id: true, code: true, name: true }, orderBy: { name: "asc" } }),
     prisma.assetCategory.findMany({ where: { active: true }, select: { id: true, code: true, name: true }, orderBy: { name: "asc" } }),
-    prisma.asset.findMany({ select: { id: true, code: true, name: true, parentAssetId: true, structureLevel: true, status: true }, orderBy: { code: "asc" } }),
     prisma.user.findMany({ where: { status: "ACTIVE" }, select: { id: true, fullName: true }, orderBy: { fullName: "asc" } }),
     prisma.contract.findMany({ select: { id: true, code: true, name: true }, orderBy: { code: "asc" } }),
     prisma.assetCustomFieldGroup.findMany({ select: { id: true, name: true, sortOrder: true }, orderBy: { sortOrder: "asc" } }),
@@ -115,7 +143,7 @@ export async function getAssetFormReferences() {
     prisma.sparePart.findMany({ select: { id: true, code: true, name: true, unit: true, availableQuantity: true }, orderBy: { code: "asc" } }),
   ]);
   const groupNames = new Map(groups.map((group) => [group.id, group.name]));
-  return { types, categories, assets, users, contracts, spareParts: parts, customFields: definitions.map((definition) => ({ ...definition, groupName: groupNames.get(definition.groupId) ?? "Additional information" })) };
+  return { types, categories, users, contracts, spareParts: parts, customFields: definitions.map((definition) => ({ ...definition, groupName: groupNames.get(definition.groupId) ?? "Additional information" })) };
 }
 
 export async function createAssetHierarchyLink(parentAssetId: string, input: HierarchyLinkMutation, actor: AuthenticatedUser, meta: RequestMeta) {

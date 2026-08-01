@@ -5,9 +5,10 @@ import { ArrowLeft, Loader2, ShieldAlert } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import type { z } from "zod";
 import { Alert } from "@/components/ui/alert";
+import { AssetCombobox } from "@/components/shared/asset-combobox";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,12 +17,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { workOrderCreateSchema } from "@/lib/maintenance/validation";
 
 type Values = z.input<typeof workOrderCreateSchema>;
-type Reference = { assets: Array<{ id: string; code: string; name: string; status: string }>; users: Array<{ id: string; fullName: string }>; departments: Array<{ id: string; name: string }> };
+type Reference = { users: Array<{ id: string; fullName: string }>; departments: Array<{ id: string; name: string }> };
 
 export default function WorkOrderCreateForm({ permitted }: { permitted: boolean }) {
-  const router = useRouter(); const [refs, setRefs] = useState<Reference>({ assets: [], users: [], departments: [] }); const [apiError, setApiError] = useState("");
-  const form = useForm<Values>({ resolver: zodResolver(workOrderCreateSchema), defaultValues: { sourceType: "MANUAL", workType: "CORRECTIVE", title: "", description: "", priority: "MEDIUM", severity: "MODERATE", equipmentOperatingStatus: "UNKNOWN", notes: "" } });
-  useEffect(() => { fetch("/api/maintenance/overview").then((r) => r.json()).then(setRefs).catch(() => setApiError("Reference data could not be loaded.")); }, []);
+  const router = useRouter(); const [refs, setRefs] = useState<Reference>({ users: [], departments: [] }); const [apiError, setApiError] = useState("");
+  const form = useForm<Values>({ resolver: zodResolver(workOrderCreateSchema), defaultValues: { sourceType: "MANUAL", assetId: "", workType: "CORRECTIVE", title: "", description: "", priority: "MEDIUM", severity: "MODERATE", equipmentOperatingStatus: "UNKNOWN", notes: "" } });
+  const assetId = useWatch({ control: form.control, name: "assetId" });
+  useEffect(() => { fetch("/api/work-orders/reference-data").then((r) => r.json()).then(setRefs).catch(() => setApiError("Reference data could not be loaded.")); }, []);
   useEffect(() => { const warn = (event: BeforeUnloadEvent) => { if (form.formState.isDirty && !form.formState.isSubmitSuccessful) event.preventDefault(); }; addEventListener("beforeunload", warn); return () => removeEventListener("beforeunload", warn); }, [form.formState.isDirty, form.formState.isSubmitSuccessful]);
   async function submit(values: Values) {
     setApiError("");
@@ -39,7 +41,7 @@ export default function WorkOrderCreateForm({ permitted }: { permitted: boolean 
         <Field label="Source type" error={form.formState.errors.sourceType?.message}><select {...form.register("sourceType")} className="wo-input"><option>MANUAL</option><option>PREVENTIVE_EVENT</option><option>SHUTDOWN_TASK</option><option>IMPORT</option></select></Field>
         <Field label="Source record" error={form.formState.errors.sourceRecordId?.message}><Input {...form.register("sourceRecordId")} placeholder="Required for non-manual sources" /></Field>
         <Field label="Work type" error={form.formState.errors.workType?.message}><select {...form.register("workType")} className="wo-input"><option>PREVENTIVE</option><option>CORRECTIVE</option><option>SHUTDOWN</option><option>OTHER_ASSIGNMENT</option></select></Field>
-        <Field label="Primary asset" error={form.formState.errors.assetId?.message}><select {...form.register("assetId")} className="wo-input"><option value="">Select asset</option>{refs.assets.filter((asset) => asset.status === "ACTIVE").map((asset) => <option key={asset.id} value={asset.id}>{asset.code} — {asset.name}</option>)}</select></Field>
+        <Field label="Primary asset" error={form.formState.errors.assetId?.message}><AssetCombobox id="work-order-asset" value={assetId ?? ""} required onValueChange={(nextAssetId) => form.setValue("assetId", nextAssetId, { shouldDirty: true, shouldTouch: true, shouldValidate: true })} /></Field>
         <Field label="Title" error={form.formState.errors.title?.message} wide><Input {...form.register("title")} /></Field>
         <Field label="Work description" error={form.formState.errors.description?.message} wide><Textarea rows={4} {...form.register("description")} /></Field>
       </div></Section>

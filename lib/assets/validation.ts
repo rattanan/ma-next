@@ -13,6 +13,20 @@ export const assetListQuerySchema = z.object({
   parentId: z.string().uuid().or(z.literal("")).optional().default(""),
 });
 
+export const assetSearchQuerySchema = z.object({
+  q: z.string().trim().max(190).optional().default(""),
+  selectedId: z.string().uuid().optional(),
+  excludeId: z.string().uuid().optional(),
+  activeOnly: z.enum(["true", "false"]).optional().default("true").transform((value) => value === "true"),
+  limit: z.coerce.number().int().min(1).max(20).optional().default(20),
+});
+
+export const assetTypeSearchQuerySchema = z.object({
+  q: z.string().trim().max(190).optional().default(""),
+  selectedId: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(20).optional().default(20),
+});
+
 export const assetMutationSchema = assetSchema.extend({
   customFields: z.record(z.string().uuid(), z.string().trim().max(500)).default({}),
 }).strict();

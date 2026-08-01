@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import type { z } from "zod";
 import { Alert } from "@/components/ui/alert";
+import { AssetCombobox } from "@/components/shared/asset-combobox";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,7 +21,6 @@ type Values = z.input<typeof assetMutationSchema>;
 type Reference = {
   types: Array<{ id: string; code: string; name: string }>;
   categories: Array<{ id: string; code: string; name: string }>;
-  assets: Array<{ id: string; code: string; name: string; structureLevel: string; status: string }>;
   users: Array<{ id: string; fullName: string }>;
   contracts: Array<{ id: string; code: string; name: string }>;
   customFields: Array<{ id: string; assetCategoryId: string | null; groupId: string; groupName: string; label: string; description: string | null; fieldType: "STRING" | "NUMBER" | "ARRAY" | "DATE"; placeholder: string | null; defaultValue: string | null; availableValues: string | null; unit: string | null; sortOrder: number; active: boolean }>;
@@ -47,7 +47,7 @@ export default function AssetForm({ mode, assetId, permitted }: { mode: "create"
     }).catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to load asset form"));
   }, [assetId, form, mode, permitted]);
   useEffect(() => { const warn = (event: BeforeUnloadEvent) => { if (form.formState.isDirty && !form.formState.isSubmitSuccessful) event.preventDefault(); }; addEventListener("beforeunload", warn); return () => removeEventListener("beforeunload", warn); }, [form.formState.isDirty, form.formState.isSubmitSuccessful]);
-  const categoryId = useWatch({ control: form.control, name: "assetCategoryId" }); const currentValues = useWatch({ control: form.control, name: "customFields" });
+  const categoryId = useWatch({ control: form.control, name: "assetCategoryId" }); const parentAssetId = useWatch({ control: form.control, name: "parentAssetId" }); const currentValues = useWatch({ control: form.control, name: "customFields" });
   const definitions = refs?.customFields.filter((field) => (!field.assetCategoryId || field.assetCategoryId === categoryId) && (field.active || Boolean(currentValues?.[field.id]))) ?? [];
   async function submit(values: Values) {
     setError(""); setUploading(Boolean(imageFile));
@@ -84,7 +84,7 @@ export default function AssetForm({ mode, assetId, permitted }: { mode: "create"
         <Field id="description" label="Description" error={form.formState.errors.description?.message} wide><Textarea id="description" rows={4} {...form.register("description")} /></Field>
       </div></Section>
       <Section title="Hierarchy, location and responsibility"><div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <Field id="parentAssetId" label="Parent asset"><Select id="parentAssetId" {...form.register("parentAssetId")}><option value="">Root asset</option>{refs.assets.filter((item) => item.id !== assetId).map((item) => <option key={item.id} value={item.id}>{item.code} — {item.name} ({item.structureLevel})</option>)}</Select></Field>
+        <Field id="parentAssetId" label="Parent asset"><AssetCombobox id="parentAssetId" value={parentAssetId ?? ""} activeOnly={false} excludeId={assetId} placeholder="ค้นหา Parent Asset อย่างน้อย 2 ตัวอักษร" onValueChange={(parentId) => form.setValue("parentAssetId", parentId || null, { shouldDirty: true, shouldTouch: true, shouldValidate: true })} /></Field>
         <Field id="location" label="Location" error={form.formState.errors.location?.message}><Input id="location" {...form.register("location")} /></Field>
         <Field id="gpsCoordinates" label="GPS coordinates"><Input id="gpsCoordinates" placeholder="latitude, longitude" {...form.register("gpsCoordinates")} /></Field>
         <Field id="ownerUserId" label="Assigned owner"><Select id="ownerUserId" {...form.register("ownerUserId")}><option value="">Unassigned</option>{refs.users.map((item) => <option key={item.id} value={item.id}>{item.fullName}</option>)}</Select></Field>
