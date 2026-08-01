@@ -12,8 +12,8 @@ const enterpriseFont = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Atlas — User management",
-  description: "AI Dashboard Builder administration",
+  title: "Atlas Maintain",
+  description: "Controlled maintenance operations from asset notification to verified close",
 };
 
 export default function RootLayout({

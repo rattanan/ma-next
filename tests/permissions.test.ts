@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canCreateDashboard, canManageDataSources, canManageUsers, canViewAuditLogs, hasPermission } from "../lib/auth/permissions";
+import { canCreateDashboard, canExecuteWorkOrders, canManageDataSources, canManageUsers, canReviewMaintenance, canVerifyWorkOrders, canViewAuditLogs, hasPermission } from "../lib/auth/permissions";
 
 describe("role-based access control", () => {
   it("allows administrators to manage users and audit logs", () => { expect(canManageUsers("ADMIN")).toBe(true); expect(canViewAuditLogs("ADMIN")).toBe(true); });
@@ -8,4 +8,7 @@ describe("role-based access control", () => {
   it("prevents data source creators from managing users", () => expect(canManageUsers("DATA_SOURCE_CREATOR")).toBe(false));
   it("allows dashboard creators to create dashboards", () => expect(canCreateDashboard("DASHBOARD_CREATOR")).toBe(true));
   it("gives all roles dashboard view access", () => { for (const role of ["ADMIN", "DATA_SOURCE_CREATOR", "DASHBOARD_CREATOR", "VIEWER"] as const) expect(hasPermission(role, "VIEW_DASHBOARD")).toBe(true); });
+  it("lets every authenticated role view maintenance and report a notification", () => { for (const role of ["ADMIN", "DATA_SOURCE_CREATOR", "DASHBOARD_CREATOR", "VIEWER"] as const) { expect(hasPermission(role, "VIEW_MAINTENANCE")).toBe(true); expect(hasPermission(role, "CREATE_MAINTENANCE_NOTIFICATION")).toBe(true); } });
+  it("reserves review and verification for supervisor-capable roles", () => { expect(canReviewMaintenance("ADMIN")).toBe(true); expect(canVerifyWorkOrders("DATA_SOURCE_CREATOR")).toBe(true); expect(canReviewMaintenance("DASHBOARD_CREATOR")).toBe(false); expect(canVerifyWorkOrders("VIEWER")).toBe(false); });
+  it("allows technicians to execute but not verify work", () => { expect(canExecuteWorkOrders("DASHBOARD_CREATOR")).toBe(true); expect(canVerifyWorkOrders("DASHBOARD_CREATOR")).toBe(false); });
 });

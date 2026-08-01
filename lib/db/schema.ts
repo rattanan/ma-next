@@ -119,3 +119,180 @@ export const loginRateLimits = mysqlTable("login_rate_limits", {
   blockedUntil: datetime("blocked_until", { mode: "date", fsp: 3 }),
   updatedAt: datetime("updated_at", { mode: "date", fsp: 3 }).notNull(),
 }, (table) => [primaryKey({ columns: [table.ipHash] })]);
+
+export const assetCriticalityValues = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
+export const assetStatusValues = ["ACTIVE", "INACTIVE", "RETIRED"] as const;
+export const notificationPriorityValues = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
+export const notificationTypeValues = ["CORRECTIVE", "BREAKDOWN", "INSPECTION"] as const;
+export const notificationStatusValues = ["NEW", "APPROVED", "BACKLOG", "REJECTED", "COMPLETED"] as const;
+export const notificationDecisionValues = ["APPROVED", "BACKLOG", "REJECTED"] as const;
+export const workOrderStatusValues = ["OPEN", "BACKLOG", "IN_PROGRESS", "COMPLETION_PENDING", "VERIFIED", "CLOSED"] as const;
+export const workTaskStatusValues = ["OPEN", "IN_PROGRESS", "COMPLETED"] as const;
+export const verificationDecisionValues = ["VERIFIED", "RETURNED"] as const;
+
+export type NotificationStatus = (typeof notificationStatusValues)[number];
+export type NotificationDecision = (typeof notificationDecisionValues)[number];
+export type WorkOrderStatus = (typeof workOrderStatusValues)[number];
+export type WorkTaskStatus = (typeof workTaskStatusValues)[number];
+export type VerificationDecision = (typeof verificationDecisionValues)[number];
+
+export const assetTypes = mysqlTable("asset_types", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  code: varchar("code", { length: 40 }).notNull(),
+  name: varchar("name", { length: 120 }).notNull(),
+  description: text("description"),
+  active: boolean("active").notNull().default(true),
+  createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
+  updatedAt: datetime("updated_at", { mode: "date", fsp: 3 }).notNull(),
+  createdBy: varchar("created_by", { length: 36 }).notNull().references(() => users.id),
+  updatedBy: varchar("updated_by", { length: 36 }).notNull().references(() => users.id),
+}, (table) => [uniqueIndex("asset_types_code_uq").on(table.code), index("asset_types_active_idx").on(table.active)]);
+
+export const assetCategories = mysqlTable("asset_categories", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  code: varchar("code", { length: 40 }).notNull(),
+  name: varchar("name", { length: 120 }).notNull(),
+  description: text("description"),
+  active: boolean("active").notNull().default(true),
+  createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
+  updatedAt: datetime("updated_at", { mode: "date", fsp: 3 }).notNull(),
+  createdBy: varchar("created_by", { length: 36 }).notNull().references(() => users.id),
+  updatedBy: varchar("updated_by", { length: 36 }).notNull().references(() => users.id),
+}, (table) => [uniqueIndex("asset_categories_code_uq").on(table.code), index("asset_categories_active_idx").on(table.active)]);
+
+export const assets = mysqlTable("assets", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  code: varchar("code", { length: 60 }).notNull(),
+  name: varchar("name", { length: 160 }).notNull(),
+  description: text("description"),
+  assetTypeId: varchar("asset_type_id", { length: 36 }).notNull().references(() => assetTypes.id),
+  assetCategoryId: varchar("asset_category_id", { length: 36 }).references(() => assetCategories.id),
+  parentAssetId: varchar("parent_asset_id", { length: 36 }),
+  location: varchar("location", { length: 190 }).notNull(),
+  criticality: mysqlEnum("criticality", assetCriticalityValues).notNull().default("MEDIUM"),
+  status: mysqlEnum("status", assetStatusValues).notNull().default("ACTIVE"),
+  ownerUserId: varchar("owner_user_id", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+  legacySourceId: int("legacy_source_id"),
+  createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
+  updatedAt: datetime("updated_at", { mode: "date", fsp: 3 }).notNull(),
+  createdBy: varchar("created_by", { length: 36 }).notNull().references(() => users.id),
+  updatedBy: varchar("updated_by", { length: 36 }).notNull().references(() => users.id),
+}, (table) => [
+  uniqueIndex("assets_code_uq").on(table.code),
+  uniqueIndex("assets_legacy_source_uq").on(table.legacySourceId),
+  index("assets_status_idx").on(table.status),
+  index("assets_type_idx").on(table.assetTypeId),
+  index("assets_parent_idx").on(table.parentAssetId),
+]);
+
+export const maintenanceNotifications = mysqlTable("maintenance_notifications", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  code: varchar("code", { length: 60 }).notNull(),
+  assetId: varchar("asset_id", { length: 36 }).notNull().references(() => assets.id),
+  title: varchar("title", { length: 190 }).notNull(),
+  description: text("description").notNull(),
+  type: mysqlEnum("type", notificationTypeValues).notNull().default("CORRECTIVE"),
+  priority: mysqlEnum("priority", notificationPriorityValues).notNull().default("MEDIUM"),
+  status: mysqlEnum("status", notificationStatusValues).notNull().default("NEW"),
+  breakdown: boolean("breakdown").notNull().default(false),
+  requestedBy: varchar("requested_by", { length: 36 }).notNull().references(() => users.id),
+  supervisorId: varchar("supervisor_id", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+  dueAt: datetime("due_at", { mode: "date", fsp: 3 }),
+  reviewedAt: datetime("reviewed_at", { mode: "date", fsp: 3 }),
+  completedAt: datetime("completed_at", { mode: "date", fsp: 3 }),
+  createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
+  updatedAt: datetime("updated_at", { mode: "date", fsp: 3 }).notNull(),
+  createdBy: varchar("created_by", { length: 36 }).notNull().references(() => users.id),
+  updatedBy: varchar("updated_by", { length: 36 }).notNull().references(() => users.id),
+}, (table) => [uniqueIndex("maintenance_notifications_code_uq").on(table.code), index("maintenance_notifications_asset_idx").on(table.assetId), index("maintenance_notifications_status_idx").on(table.status)]);
+
+export const notificationReviews = mysqlTable("notification_reviews", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  notificationId: varchar("notification_id", { length: 36 }).notNull().references(() => maintenanceNotifications.id, { onDelete: "cascade" }),
+  decision: mysqlEnum("decision", notificationDecisionValues).notNull(),
+  note: text("note").notNull(),
+  reviewedBy: varchar("reviewed_by", { length: 36 }).notNull().references(() => users.id),
+  reviewedAt: datetime("reviewed_at", { mode: "date", fsp: 3 }).notNull(),
+}, (table) => [uniqueIndex("notification_reviews_notification_uq").on(table.notificationId)]);
+
+export const workOrders = mysqlTable("work_orders", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  code: varchar("code", { length: 60 }).notNull(),
+  notificationId: varchar("notification_id", { length: 36 }).notNull().references(() => maintenanceNotifications.id),
+  assetId: varchar("asset_id", { length: 36 }).notNull().references(() => assets.id),
+  title: varchar("title", { length: 190 }).notNull(),
+  description: text("description").notNull(),
+  priority: mysqlEnum("priority", notificationPriorityValues).notNull().default("MEDIUM"),
+  status: mysqlEnum("status", workOrderStatusValues).notNull().default("OPEN"),
+  assignedTo: varchar("assigned_to", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+  supervisorId: varchar("supervisor_id", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+  dueAt: datetime("due_at", { mode: "date", fsp: 3 }),
+  startedAt: datetime("started_at", { mode: "date", fsp: 3 }),
+  verifiedAt: datetime("verified_at", { mode: "date", fsp: 3 }),
+  closedAt: datetime("closed_at", { mode: "date", fsp: 3 }),
+  createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
+  updatedAt: datetime("updated_at", { mode: "date", fsp: 3 }).notNull(),
+  createdBy: varchar("created_by", { length: 36 }).notNull().references(() => users.id),
+  updatedBy: varchar("updated_by", { length: 36 }).notNull().references(() => users.id),
+}, (table) => [uniqueIndex("work_orders_code_uq").on(table.code), uniqueIndex("work_orders_notification_uq").on(table.notificationId), index("work_orders_status_idx").on(table.status), index("work_orders_asset_idx").on(table.assetId), index("work_orders_assignee_idx").on(table.assignedTo)]);
+
+export const workOrderTasks = mysqlTable("work_order_tasks", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  workOrderId: varchar("work_order_id", { length: 36 }).notNull().references(() => workOrders.id, { onDelete: "cascade" }),
+  sequence: int("sequence").notNull(),
+  title: varchar("title", { length: 190 }).notNull(),
+  description: text("description"),
+  required: boolean("required").notNull().default(true),
+  status: mysqlEnum("status", workTaskStatusValues).notNull().default("OPEN"),
+  assignedTo: varchar("assigned_to", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+  completedBy: varchar("completed_by", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+  completedAt: datetime("completed_at", { mode: "date", fsp: 3 }),
+  createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
+  updatedAt: datetime("updated_at", { mode: "date", fsp: 3 }).notNull(),
+}, (table) => [uniqueIndex("work_order_tasks_sequence_uq").on(table.workOrderId, table.sequence), index("work_order_tasks_status_idx").on(table.workOrderId, table.status)]);
+
+export const workExecutionEntries = mysqlTable("work_execution_entries", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  workOrderId: varchar("work_order_id", { length: 36 }).notNull().references(() => workOrders.id, { onDelete: "cascade" }),
+  description: text("description").notNull(),
+  minutesSpent: int("minutes_spent").notNull(),
+  actionAt: datetime("action_at", { mode: "date", fsp: 3 }).notNull(),
+  actorUserId: varchar("actor_user_id", { length: 36 }).notNull().references(() => users.id),
+  createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
+}, (table) => [index("work_execution_entries_order_idx").on(table.workOrderId, table.actionAt)]);
+
+export const workOrderCompletions = mysqlTable("work_order_completions", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  workOrderId: varchar("work_order_id", { length: 36 }).notNull().references(() => workOrders.id, { onDelete: "cascade" }),
+  result: varchar("result", { length: 190 }).notNull(),
+  problem: text("problem"),
+  cause: text("cause"),
+  solution: text("solution").notNull(),
+  escalation: text("escalation"),
+  notes: text("notes"),
+  durationMinutes: int("duration_minutes").notNull(),
+  completedBy: varchar("completed_by", { length: 36 }).notNull().references(() => users.id),
+  completedAt: datetime("completed_at", { mode: "date", fsp: 3 }).notNull(),
+  createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
+}, (table) => [index("work_order_completions_order_idx").on(table.workOrderId, table.completedAt)]);
+
+export const workOrderVerifications = mysqlTable("work_order_verifications", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  workOrderId: varchar("work_order_id", { length: 36 }).notNull().references(() => workOrders.id, { onDelete: "cascade" }),
+  completionId: varchar("completion_id", { length: 36 }).notNull().references(() => workOrderCompletions.id, { onDelete: "cascade" }),
+  decision: mysqlEnum("decision", verificationDecisionValues).notNull(),
+  note: text("note").notNull(),
+  verifiedBy: varchar("verified_by", { length: 36 }).notNull().references(() => users.id),
+  verifiedAt: datetime("verified_at", { mode: "date", fsp: 3 }).notNull(),
+}, (table) => [uniqueIndex("work_order_verifications_completion_uq").on(table.completionId), index("work_order_verifications_order_idx").on(table.workOrderId)]);
+
+export const workOrderEvents = mysqlTable("work_order_events", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  workOrderId: varchar("work_order_id", { length: 36 }).notNull().references(() => workOrders.id, { onDelete: "cascade" }),
+  eventType: varchar("event_type", { length: 60 }).notNull(),
+  fromStatus: mysqlEnum("from_status", workOrderStatusValues),
+  toStatus: mysqlEnum("to_status", workOrderStatusValues),
+  note: text("note"),
+  actorUserId: varchar("actor_user_id", { length: 36 }).notNull().references(() => users.id),
+  createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
+}, (table) => [index("work_order_events_order_idx").on(table.workOrderId, table.createdAt)]);

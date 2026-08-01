@@ -2,7 +2,7 @@ import { compare, hash } from "bcryptjs";
 import { randomBytes, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db, pool } from "../lib/db";
-import { users, type Role } from "../lib/db/schema";
+import { assetCategories, assetTypes, users, type Role } from "../lib/db/schema";
 
 const definitions: Array<{ role: Role; name: string; username: string; emailKey: string; passwordKey: string; defaultEmail: string }> = [
   { role: "ADMIN", name: "System Administrator", username: "admin", emailKey: "SEED_ADMIN_EMAIL", passwordKey: "SEED_ADMIN_PASSWORD", defaultEmail: "admin@example.com" },
@@ -30,7 +30,14 @@ async function main() {
     await db.insert(users).values({ id: randomUUID(), fullName: definition.name, username: definition.username, email, passwordHash, role: definition.role, status: "ACTIVE", mustChangePassword: true, createdAt: now, updatedAt: now });
     created.push({ role: definition.role, email, password });
   }
-  if (!created.length) console.log("Seed skipped: all four role users already exist.");
+  const admin = (await db.select({ id: users.id }).from(users).where(eq(users.role, "ADMIN")).limit(1))[0];
+  if (!admin) throw new Error("An administrator is required to seed maintenance masters");
+  const now = new Date();
+  const existingTypes = await db.select({ code: assetTypes.code }).from(assetTypes);
+  if (!existingTypes.some((item) => item.code === "EQUIPMENT")) await db.insert(assetTypes).values({ id: randomUUID(), code: "EQUIPMENT", name: "Equipment", description: "Maintainable plant and facility equipment", active: true, createdAt: now, updatedAt: now, createdBy: admin.id, updatedBy: admin.id });
+  const existingCategories = await db.select({ code: assetCategories.code }).from(assetCategories);
+  if (!existingCategories.some((item) => item.code === "GENERAL")) await db.insert(assetCategories).values({ id: randomUUID(), code: "GENERAL", name: "General", description: "Default migration category", active: true, createdAt: now, updatedAt: now, createdBy: admin.id, updatedBy: admin.id });
+  if (!created.length) console.log("User seed skipped: all four role users already exist.");
   else {
     console.log("Created seed users. Temporary passwords are shown once; store them securely:");
     for (const item of created) console.log(`${item.role}: ${item.email} / ${item.password}`);
