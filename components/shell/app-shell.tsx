@@ -22,10 +22,8 @@ const navigation = [
   { href: "/approvals", label: "Approve Center", icon: ClipboardCheck, permission: "NOTIFICATION_REVIEW", approvalBadge: true },
   { href: "/organization", label: "Organization", icon: Building2, permission: "VIEW_ORGANIZATION" },
   { href: "/settings/master-data", label: "Master data", icon: Database, permission: "VIEW_MASTER_DATA" },
-  { href: "/inbox", label: "System Inbox", icon: Bell, permission: "VIEW_NOTIFICATIONS" },
   { href: "/admin/users", label: "Users & access", icon: Users, permission: "MANAGE_USERS" },
   { href: "/admin/audit-logs", label: "Audit log", icon: ShieldCheck, permission: "VIEW_AUDIT_LOGS" },
-  { href: "/profile", label: "My profile", icon: UserRound },
 ];
 
 function ApprovalBadge({ count, collapsed = false }: { count: number; collapsed?: boolean }) { return count > 0 ? <span className={cn("min-w-5 rounded-full bg-cyan-300 px-1.5 py-0.5 text-center text-[10px] font-extrabold leading-4 text-blue-950", collapsed ? "absolute right-1 top-1" : "ml-auto")} aria-label={`${count} pending approvals`}>{count > 99 ? "99+" : count}</span> : null; }
@@ -63,8 +61,10 @@ function Navigation({ user, approvalCount, collapsed = false }: { user: ShellUse
           );
         })}
       </nav>
-      <div className={cn("border-t border-white/10 px-3 pt-4", collapsed && "px-0 text-center")} title={collapsed ? `${user.fullName} · ${user.role.replaceAll("_", " ")}` : undefined}>
-        {collapsed ? <UserRound className="mx-auto size-5 text-blue-100/80" aria-label={`${user.fullName}, ${user.role.replaceAll("_", " ")}`} /> : <><p className="truncate text-sm font-semibold">{user.fullName}</p><p className="mt-1 text-xs text-blue-100/60">{user.role.replaceAll("_", " ")}</p></>}
+      <div className={cn("border-t border-white/10 pt-3", collapsed ? "px-0" : "px-1")}>
+        <Link href="/profile" aria-label={collapsed ? `เปิดโปรไฟล์ของ ${user.fullName}` : undefined} aria-current={pathname === "/profile" || pathname.startsWith("/profile/") ? "page" : undefined} title={collapsed ? `${user.fullName} · ${user.role.replaceAll("_", " ")}` : undefined} className={cn("block rounded-xl text-blue-100/80 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300", collapsed ? "grid min-h-11 place-items-center" : "px-3 py-2", (pathname === "/profile" || pathname.startsWith("/profile/")) && "bg-white/10 text-white")}>
+          {collapsed ? <UserRound className="size-5" aria-hidden="true" /> : <><p className="truncate text-sm font-semibold">{user.fullName}</p><p className="mt-1 truncate text-xs text-blue-100/60">{user.role.replaceAll("_", " ")}</p></>}
+        </Link>
       </div>
     </div>
   );
@@ -73,9 +73,12 @@ function Navigation({ user, approvalCount, collapsed = false }: { user: ShellUse
 export function AppShell({ user, children }: { user: ShellUser; children: React.ReactNode }) {
   const router = useRouter();
   const [approvalCount, setApprovalCount] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
   const sidebarCollapsed = useSyncExternalStore(subscribeToSidebarState, getSidebarState, getServerSidebarState);
   const loadApprovalCount = useCallback(async () => { if (!user.permissions.includes("NOTIFICATION_REVIEW")) return; try { const response = await fetch("/api/approvals/pending-count", { cache: "no-store" }); if (response.ok) setApprovalCount((await response.json()).count ?? 0); } catch { /* The next poll retries without disrupting navigation. */ } }, [user.permissions]);
+  const loadUnreadCount = useCallback(async () => { if (!user.permissions.includes("VIEW_NOTIFICATIONS")) return; try { const response = await fetch("/api/notifications/unread-count", { cache: "no-store" }); if (response.ok) setUnreadCount((await response.json()).count ?? 0); } catch { /* The next poll retries without disrupting navigation. */ } }, [user.permissions]);
   useEffect(() => { const initial = window.setTimeout(() => void loadApprovalCount(), 0); const interval = window.setInterval(() => void loadApprovalCount(), 45_000); window.addEventListener("approval-count-changed", loadApprovalCount); return () => { window.clearTimeout(initial); window.clearInterval(interval); window.removeEventListener("approval-count-changed", loadApprovalCount); }; }, [loadApprovalCount]);
+  useEffect(() => { const initial = window.setTimeout(() => void loadUnreadCount(), 0); const interval = window.setInterval(() => void loadUnreadCount(), 45_000); window.addEventListener("notification-unread-count-changed", loadUnreadCount); return () => { window.clearTimeout(initial); window.clearInterval(interval); window.removeEventListener("notification-unread-count-changed", loadUnreadCount); }; }, [loadUnreadCount]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -109,7 +112,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
           </Dialog>
           <Link href="/" className="lg:hidden" aria-label="MA Next home"><MaLogo compact size="sm" /></Link>
           <div className="min-w-0 flex-1"><Breadcrumbs /></div>
-          {user.permissions.includes("NOTIFICATION_REVIEW") && <Button asChild variant="ghost" size="icon" className="relative" aria-label={approvalCount ? `${approvalCount} pending approvals` : "No pending approvals"}><Link href="/approvals"><Bell className="size-5" />{approvalCount > 0 && <span className="absolute right-0.5 top-0.5 min-w-4 rounded-full bg-red-600 px-1 text-center text-[9px] font-bold leading-4 text-white">{approvalCount > 99 ? "99+" : approvalCount}</span>}</Link></Button>}
+          {user.permissions.includes("VIEW_NOTIFICATIONS") && <Button asChild variant="ghost" size="icon" className="relative" aria-label={unreadCount ? `${unreadCount} unread messages` : "No unread messages"}><Link href="/inbox"><Bell className="size-5" />{unreadCount > 0 && <span className="absolute right-0.5 top-0.5 min-w-4 rounded-full bg-red-600 px-1 text-center text-[9px] font-bold leading-4 text-white" aria-hidden="true">{unreadCount > 99 ? "99+" : unreadCount}</span>}</Link></Button>}
           <Button variant="ghost" size="icon" onClick={logout} aria-label="Sign out"><LogOut className="size-5" /></Button>
         </header>
         <div id="main-content" tabIndex={-1}>{children}</div>

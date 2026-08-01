@@ -44,6 +44,7 @@ export function NotificationCenter() {
       const response = await fetch(`/api/notifications/${id}/read`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ status: "READ" }) });
       if (!response.ok) throw new Error((await response.json()).error || "Unable to mark notification as read");
       await load();
+      window.dispatchEvent(new Event("notification-unread-count-changed"));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to mark notification as read");
     } finally {
