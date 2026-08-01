@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 
 type Role = "ADMIN" | "DATA_SOURCE_CREATOR" | "DASHBOARD_CREATOR" | "VIEWER";
@@ -69,20 +68,12 @@ export default function MaintenanceWorkspace() {
   async function createNotification(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); if (await mutate("/api/maintenance/notifications", { assetId: data.get("assetId"), title: data.get("title"), description: data.get("description"), type: data.get("type"), priority: data.get("priority"), breakdown: data.get("breakdown") === "on", supervisorId: data.get("supervisorId") || null, dueAt: data.get("dueAt") ? new Date(String(data.get("dueAt"))).toISOString() : null }, "Maintenance notification reported")) setPanel(null); }
 
   const counts = useMemo(() => ({ newNotifications: overview.notifications.filter((item) => item.status === "NEW").length, activeWork: overview.workOrders.filter((item) => !["CLOSED", "VERIFIED"].includes(item.status)).length, pendingVerification: overview.workOrders.filter((item) => item.status === "COMPLETION_PENDING").length, closed: overview.workOrders.filter((item) => item.status === "CLOSED").length }), [overview]);
-  const initials = currentUser?.fullName.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase() || "--";
-
-  return <main className="maintenance-shell">
-    <a className="skip-link" href="#maintenance-main">Skip to maintenance workspace</a>
-    <aside className="maintenance-sidebar" aria-label="Maintenance navigation">
-      <Link href="/" className="maintenance-brand"><span>AM</span><strong>Atlas Maintain</strong></Link>
-      <p>WORKSPACE</p>
-      <nav><button className={tab === "pipeline" ? "active" : ""} onClick={() => setTab("pipeline")}>Work pipeline</button><button className={tab === "assets" ? "active" : ""} onClick={() => setTab("assets")}>Asset register</button><button className={tab === "notifications" ? "active" : ""} onClick={() => setTab("notifications")}>Notifications</button></nav>
-      <div className="maintenance-sidebar-note"><strong>Migration slice</strong><span>Asset to verified close</span></div>
-      <Link className="maintenance-account" href="/profile"><span>{initials}</span><small>{currentUser?.fullName}<br />{currentUser ? label(currentUser.role) : "Loading"}</small></Link>
-    </aside>
-    <section className="maintenance-content" id="maintenance-main">
-      <header className="maintenance-topbar"><div><span>Maintenance operations</span><strong>/ {tab === "pipeline" ? "Work pipeline" : tab === "assets" ? "Assets" : "Notifications"}</strong></div><div><Link href="/">Administration</Link><Link href="/profile">Profile</Link></div></header>
-      <div className="maintenance-page">
+  return <main className="maintenance-page" id="maintenance-main">
+      <nav className="maintenance-tabs" aria-label="Maintenance workspace">
+        <button className={tab === "pipeline" ? "active" : ""} aria-current={tab === "pipeline" ? "page" : undefined} onClick={() => setTab("pipeline")}>Work pipeline</button>
+        <button className={tab === "assets" ? "active" : ""} aria-current={tab === "assets" ? "page" : undefined} onClick={() => setTab("assets")}>Asset register</button>
+        <button className={tab === "notifications" ? "active" : ""} aria-current={tab === "notifications" ? "page" : undefined} onClick={() => setTab("notifications")}>Notifications</button>
+      </nav>
         <div className="maintenance-heading"><div><p className="maintenance-eyebrow">CONTROLLED MAINTENANCE FLOW</p><h1>{tab === "pipeline" ? "Maintenance work pipeline" : tab === "assets" ? "Asset register" : "Maintenance notifications"}</h1><p>{tab === "pipeline" ? "Move work from reported condition through supervised verification and close." : tab === "assets" ? "Maintain the equipment identity that anchors every request and work order." : "Report, review, and authorize maintenance against an active asset."}</p></div><div className="maintenance-heading-actions">{canExecute(currentUser?.role) && <button className="secondary-button" onClick={() => { setPanel("asset"); setTab("assets"); }}>New asset</button>}<button className="primary-button" onClick={() => { setPanel("notification"); setTab("notifications"); }}>Report notification</button></div></div>
         <div className="maintenance-live" aria-live="polite" aria-atomic="true">{message && <p className="form-success">{message}</p>}{error && <p className="form-error" role="alert">{error}</p>}</div>
         {busy ? <div className="maintenance-loading">Loading maintenance data…</div> : <>
@@ -93,8 +84,6 @@ export default function MaintenanceWorkspace() {
           {tab === "assets" && <AssetRegister assets={overview.assets} />}
           {tab === "notifications" && <NotificationQueue notifications={overview.notifications} users={overview.users} role={currentUser?.role} mutate={mutate} />}
         </>}
-      </div>
-    </section>
   </main>;
 }
 
