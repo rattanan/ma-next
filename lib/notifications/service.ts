@@ -1,0 +1,11 @@
+import type { z } from "zod";
+import { prisma } from "@/lib/prisma";
+import { writeAudit } from "@/lib/audit/service";
+import type { AuthenticatedUser } from "@/lib/auth/session";
+import type { RequestMeta } from "@/lib/auth/request";
+import { HttpError } from "@/lib/http";
+import { notificationSchema, notificationReadSchema } from "./validation";
+
+export function listNotifications(userId: string) { return prisma.notificationRecipient.findMany({ where: { userId, status: { not: "ARCHIVED" } }, include: { notification: true }, orderBy: { createdAt: "desc" }, take: 100 }); }
+export function createNotification(input: z.infer<typeof notificationSchema>, actor: AuthenticatedUser, meta: RequestMeta) { return prisma.$transaction(async (tx) => { const record = await tx.notification.create({ data: { type: input.type, title: input.title, message: input.message, actionUrl: input.actionUrl || null, sourceType: input.sourceType || null, sourceId: input.sourceId || null, createdBy: actor.id, recipients: { createMany: { data: [...new Set(input.recipientIds)].map((userId) => ({ userId })) } } } }); await writeAudit(tx, { action: "NOTIFICATION_CREATED", category: "NOTIFICATIONS", targetType: "NOTIFICATION", targetId: record.id, targetName: record.title, description: `Created notification for ${input.recipientIds.length} recipient(s)`, newValues: { type: input.type, recipientCount: input.recipientIds.length } }, actor, meta); return record; }); }
+export function updateNotificationStatus(id: string, input: z.infer<typeof notificationReadSchema>, actor: AuthenticatedUser, meta: RequestMeta) { return prisma.$transaction(async (tx) => { const existing = await tx.notificationRecipient.findFirst({ where: { id, userId: actor.id } }); if (!existing) throw new HttpError(404, "Notification not found", "NOTIFICATION_NOT_FOUND"); const record = await tx.notificationRecipient.update({ where: { id }, data: { status: input.status, readAt: input.status === "READ" ? new Date() : existing.readAt } }); await writeAudit(tx, { action: "NOTIFICATION_STATUS_CHANGED", category: "NOTIFICATIONS", targetType: "NOTIFICATION_RECIPIENT", targetId: id, description: `Notification marked ${input.status}`, previousValues: { status: existing.status }, newValues: { status: input.status } }, actor, meta); return record; }); }

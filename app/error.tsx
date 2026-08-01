@@ -1,0 +1,4 @@
+"use client";
+import { useEffect } from "react";
+import { Button } from "@/components/ui/button";
+export default function ErrorPage({ error, unstable_retry }: { error: Error & { digest?: string }; unstable_retry: () => void }) { useEffect(() => { console.error("Route error", { digest: error.digest }); }, [error]); return <main className="grid min-h-[70vh] place-items-center p-6"><section className="max-w-lg rounded-2xl border border-red-200 bg-white p-8 text-center shadow-sm"><p className="text-sm font-bold uppercase tracking-wide text-red-700">Unexpected error</p><h1 className="mt-3 text-2xl font-bold">This part of MA Next could not load.</h1><p className="mt-3 text-slate-600">The incident was recorded without exposing sensitive details. Retry the request or return later.</p><Button className="mt-6" onClick={unstable_retry}>Try again</Button></section></main>; }

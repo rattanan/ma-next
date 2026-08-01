@@ -12,8 +12,8 @@ const enterpriseFont = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Atlas Maintain",
-  description: "Controlled maintenance operations from asset notification to verified close",
+  title: { default: "MA Next", template: "%s · MA Next" },
+  description: "Modern maintenance management with server-enforced access and auditable operations",
 };
 
 export default function RootLayout({

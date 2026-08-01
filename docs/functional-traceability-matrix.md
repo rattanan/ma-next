@@ -47,3 +47,20 @@ This matrix is the migration backlog index. Evidence paths are relative to `aes0
 
 Before implementation, each capability needs: sanitized schema/constraints, representative data, actor/permission matrix, status-transition table, validation/error cases, side effects, audit requirements, reports/exports, file behavior, and parity scenarios. A legacy code path is evidence, not automatically the desired specification.
 
+## MA Next foundation implementation — 2026-08-01
+
+| Foundation capability | Implemented evidence | Legacy trace | Verification status |
+|---|---|---|---|
+| App Router, strict TypeScript, Tailwind and shadcn/ui conventions | `app/`, `tsconfig.json`, `components.json`, `components/ui/` | Platform prerequisite | Lint, typecheck, unit tests, production build |
+| Prisma and MariaDB | `prisma/schema.prisma`, `prisma.config.ts`, `prisma/migrations/0001_foundation/` | Sanitized target schema; no production connection | Prisma validate/generate; migration SQL generated from empty schema |
+| Authentication, normalized Role and Permission | `lib/auth/session.ts`, `lib/auth/permissions.ts`, `Role`, `Permission`, `UserRole`, `RolePermission` | IAM-01, IAM-02 | Server session and permission checks; legacy role fallback retained during migration |
+| Organization, Site, Department | `app/organization/`, `app/api/organizations/`, `app/api/sites/`, `app/api/departments/` | HR-01 and platform scoping prerequisite | Functional directory and Zod-validated audited creation |
+| Configurable master data | `app/settings/master-data/`, `app/api/master-data/` | SYS-05 subset | Functional type/value management with uniqueness and audit |
+| Audit logging | `lib/audit/service.ts`, existing audit administration | SYS-01 | Actor/request context, masked before/after values, transactional writes |
+| Attachment abstraction | `Attachment`, `lib/attachments/`, `app/api/attachments/` | SYS-04 | Driver/storage-key metadata, size validation, server permissions, audit |
+| Notification center | `Notification`, `NotificationRecipient`, `app/notifications/`, `app/api/notifications/` | SYS-02 | Per-user inbox, read/archive state, relative deep links, audited mutation |
+| Application shell and landing page | `components/shell/`, `app/page.tsx` | Product navigation prerequisite | Responsive sidebar drawer, breadcrumbs, skip link, permission-filtered navigation |
+| Global errors and structured logging | `app/error.tsx`, `app/global-error.tsx`, `lib/logger.ts`, `lib/http.ts` | SYS-01 operational support | Recoverable boundaries and credential redaction tests |
+| Seed and automated tests | `prisma/seed.ts`, `tests/foundation-*`, `tests/integration/` | Representative local data | Unit suite always runs; integration suite requires disposable `TEST_DATABASE_URL` |
+
+The foundation does not claim parity for deferred domain rows. Attachment storage-provider upload/download mechanics beyond registered metadata remain provider-specific work under SYS-04, and email delivery remains deferred under SYS-02; the in-application notification channel is implemented.

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
+import { logger } from "@/lib/logger";
 
 export class HttpError extends Error {
   constructor(public status: number, message: string, public code = "REQUEST_FAILED") { super(message); }
@@ -13,6 +14,7 @@ export function apiError(error: unknown, requestId?: string) {
     const isUser = /users_(email|username)_uq/.test(error.message);
     return NextResponse.json({ error: isUser ? "Email or username already exists" : "A record with that unique value already exists", code: isUser ? "DUPLICATE_USER" : "DUPLICATE_RECORD", requestId }, { status: 409 });
   }
-  console.error("API request failed", { requestId, name: error instanceof Error ? error.name : "UnknownError" });
+  if (error instanceof Error && (error as { code?: string }).code === "P2002") return NextResponse.json({ error: "A record with that unique value already exists", code: "DUPLICATE_RECORD", requestId }, { status: 409 });
+  logger.error("API request failed", { requestId, name: error instanceof Error ? error.name : "UnknownError", message: error instanceof Error ? error.message : "Unknown error" });
   return NextResponse.json({ error: "An unexpected error occurred", code: "INTERNAL_ERROR", requestId }, { status: 500 });
 }

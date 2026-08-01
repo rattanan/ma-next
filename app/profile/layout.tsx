@@ -1,3 +1,2 @@
-import { redirect } from "next/navigation";
-import { getCurrentSession } from "@/lib/auth/session";
-export default async function ProfileLayout({ children }: { children: React.ReactNode }) { if (!(await getCurrentSession())) redirect("/login"); return children; }
+import { ProtectedShell } from "@/components/shell/protected-shell";
+export default function ProfileLayout({ children }: { children: React.ReactNode }) { return <ProtectedShell>{children}</ProtectedShell>; }

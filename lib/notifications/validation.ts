@@ -1,0 +1,3 @@
+import { z } from "zod";
+export const notificationSchema = z.object({ type: z.string().trim().min(2).max(80).regex(/^[A-Z0-9_]+$/), title: z.string().trim().min(2).max(190), message: z.string().trim().min(2).max(8000), actionUrl: z.string().trim().max(500).refine((value) => !value || value.startsWith("/"), "Action URL must be application-relative").optional().default(""), recipientIds: z.array(z.uuid()).min(1).max(100), sourceType: z.string().trim().max(80).optional(), sourceId: z.string().trim().max(80).optional() });
+export const notificationReadSchema = z.object({ status: z.enum(["READ", "ARCHIVED"]).default("READ") });

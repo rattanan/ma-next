@@ -1,0 +1,576 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  LOCKED
+  ARCHIVED
+}
+enum AuditResult {
+  SUCCESS
+  FAILED
+}
+enum LoginEventType {
+  LOGIN
+  LOGOUT
+  SESSION
+}
+enum LoginStatus {
+  SUCCESS
+  FAILED
+  LOCKED
+  LOGOUT
+  SESSION_EXPIRED
+}
+enum ScopeType {
+  GLOBAL
+  ORGANIZATION
+  SITE
+  DEPARTMENT
+}
+enum AttachmentDriver {
+  LOCAL
+  S3
+  AZURE
+}
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+}
+enum NotificationRecipientStatus {
+  UNREAD
+  READ
+  ARCHIVED
+}
+enum AssetCriticality {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+enum AssetStatus {
+  ACTIVE
+  INACTIVE
+  RETIRED
+}
+enum MaintenancePriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+enum MaintenanceNotificationType {
+  CORRECTIVE
+  BREAKDOWN
+  INSPECTION
+}
+enum MaintenanceNotificationStatus {
+  NEW
+  APPROVED
+  BACKLOG
+  REJECTED
+  COMPLETED
+}
+enum NotificationDecision {
+  APPROVED
+  BACKLOG
+  REJECTED
+}
+enum WorkOrderStatus {
+  OPEN
+  BACKLOG
+  IN_PROGRESS
+  COMPLETION_PENDING
+  VERIFIED
+  CLOSED
+}
+enum WorkTaskStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+}
+enum VerificationDecision {
+  VERIFIED
+  RETURNED
+}
+
+model User {
+  id                         String            @id @default(uuid()) @db.VarChar(36)
+  fullName                   String            @map("full_name") @db.VarChar(160)
+  username                   String            @unique(map: "users_username_uq") @db.VarChar(80)
+  email                      String            @unique(map: "users_email_uq") @db.VarChar(190)
+  passwordHash               String            @map("password_hash") @db.VarChar(255)
+  legacyRole                 String            @default("VIEWER") @map("role") @db.VarChar(40)
+  status                     UserStatus        @default(ACTIVE)
+  adminNotes                 String?           @map("admin_notes") @db.Text
+  failedLoginAttempts        Int               @default(0) @map("failed_login_attempts")
+  failedLoginWindowStartedAt DateTime?         @map("failed_login_window_started_at") @db.DateTime(3)
+  lockedUntil                DateTime?         @map("locked_until") @db.DateTime(3)
+  mustChangePassword         Boolean           @default(true) @map("must_change_password")
+  lastLoginAt                DateTime?         @map("last_login_at") @db.DateTime(3)
+  passwordChangedAt          DateTime?         @map("password_changed_at") @db.DateTime(3)
+  createdAt                  DateTime          @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt                  DateTime          @updatedAt @map("updated_at") @db.DateTime(3)
+  createdBy                  String?           @map("created_by") @db.VarChar(36)
+  updatedBy                  String?           @map("updated_by") @db.VarChar(36)
+  archivedAt                 DateTime?         @map("archived_at") @db.DateTime(3)
+  sessions                   Session[]
+  passwordHistory            PasswordHistory[]
+  roles                      UserRole[]
+  notificationRecipients     NotificationRecipient[]
+
+  @@index([status], map: "users_status_idx")
+  @@map("users")
+}
+
+model Role {
+  id          String           @id @default(uuid()) @db.VarChar(36)
+  code        String           @unique @db.VarChar(80)
+  name        String           @db.VarChar(120)
+  description String?          @db.Text
+  system      Boolean          @default(false)
+  active      Boolean          @default(true)
+  createdAt   DateTime         @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.DateTime(3)
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(uuid()) @db.VarChar(36)
+  code        String           @unique @db.VarChar(120)
+  name        String           @db.VarChar(160)
+  description String?          @db.Text
+  category    String           @db.VarChar(80)
+  roles       RolePermission[]
+
+  @@index([category])
+  @@map("permissions")
+}
+
+model UserRole {
+  id             String       @id @default(uuid()) @db.VarChar(36)
+  userId         String       @map("user_id") @db.VarChar(36)
+  roleId         String       @map("role_id") @db.VarChar(36)
+  scopeType      ScopeType    @default(GLOBAL) @map("scope_type")
+  organizationId String?      @map("organization_id") @db.VarChar(36)
+  siteId         String?      @map("site_id") @db.VarChar(36)
+  departmentId   String?      @map("department_id") @db.VarChar(36)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.DateTime(3)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           Role         @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId, scopeType, organizationId, siteId, departmentId], map: "user_roles_scope_uq")
+  @@index([userId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String     @map("role_id") @db.VarChar(36)
+  permissionId String     @map("permission_id") @db.VarChar(36)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model Session {
+  id               String    @id @default(uuid()) @db.VarChar(36)
+  userId           String    @map("user_id") @db.VarChar(36)
+  sessionTokenHash String    @unique(map: "sessions_token_uq") @map("session_token_hash") @db.VarChar(64)
+  ipAddress        String?   @map("ip_address") @db.VarChar(64)
+  userAgent        String?   @map("user_agent") @db.Text
+  lastActiveAt     DateTime  @map("last_active_at") @db.DateTime(3)
+  expiresAt        DateTime  @map("expires_at") @db.DateTime(3)
+  revokedAt        DateTime? @map("revoked_at") @db.DateTime(3)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "sessions_user_idx")
+  @@index([expiresAt], map: "sessions_expires_idx")
+  @@map("sessions")
+}
+
+model PasswordHistory {
+  id           String   @id @default(uuid()) @db.VarChar(36)
+  userId       String   @map("user_id") @db.VarChar(36)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  createdAt    DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, createdAt], map: "password_history_user_idx")
+  @@map("password_history")
+}
+
+model LoginHistory {
+  id              String         @id @default(uuid()) @db.VarChar(36)
+  userId          String?        @map("user_id") @db.VarChar(36)
+  loginIdentifier String         @map("login_identifier") @db.VarChar(190)
+  eventType       LoginEventType @map("event_type")
+  status          LoginStatus
+  ipAddress       String?        @map("ip_address") @db.VarChar(64)
+  userAgent       String?        @map("user_agent") @db.Text
+  browser         String?        @db.VarChar(80)
+  operatingSystem String?        @map("operating_system") @db.VarChar(80)
+  deviceType      String?        @map("device_type") @db.VarChar(40)
+  failureReason   String?        @map("failure_reason") @db.VarChar(160)
+  loggedInAt      DateTime?      @map("logged_in_at") @db.DateTime(3)
+  loggedOutAt     DateTime?      @map("logged_out_at") @db.DateTime(3)
+  createdAt       DateTime       @default(now()) @map("created_at") @db.DateTime(3)
+  @@index([userId], map: "login_history_user_idx")
+  @@index([createdAt], map: "login_history_created_idx")
+  @@index([status], map: "login_history_status_idx")
+  @@map("login_history")
+}
+
+model LoginRateLimit {
+  ipHash          String    @id @map("ip_hash") @db.VarChar(64)
+  windowStartedAt DateTime  @map("window_started_at") @db.DateTime(3)
+  attempts        Int       @default(0)
+  blockedUntil    DateTime? @map("blocked_until") @db.DateTime(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+  @@map("login_rate_limits")
+}
+
+model Organization {
+  id          String       @id @default(uuid()) @db.VarChar(36)
+  code        String       @unique @db.VarChar(40)
+  name        String       @db.VarChar(160)
+  description String?      @db.Text
+  active      Boolean      @default(true)
+  createdAt   DateTime     @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt   DateTime     @updatedAt @map("updated_at") @db.DateTime(3)
+  sites       Site[]
+  departments Department[]
+  @@map("organizations")
+}
+
+model Site {
+  id             String       @id @default(uuid()) @db.VarChar(36)
+  organizationId String       @map("organization_id") @db.VarChar(36)
+  code           String       @db.VarChar(40)
+  name           String       @db.VarChar(160)
+  timezone       String       @default("Asia/Bangkok") @db.VarChar(80)
+  address        String?      @db.Text
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.DateTime(3)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  departments    Department[]
+  @@unique([organizationId, code])
+  @@map("sites")
+}
+
+model Department {
+  id             String       @id @default(uuid()) @db.VarChar(36)
+  organizationId String       @map("organization_id") @db.VarChar(36)
+  siteId         String?      @map("site_id") @db.VarChar(36)
+  parentId       String?      @map("parent_id") @db.VarChar(36)
+  code           String       @db.VarChar(40)
+  name           String       @db.VarChar(160)
+  active         Boolean      @default(true)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.DateTime(3)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  site           Site?        @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  parent         Department?  @relation("DepartmentTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children       Department[] @relation("DepartmentTree")
+  @@unique([organizationId, code])
+  @@index([siteId])
+  @@map("departments")
+}
+
+model MasterDataType {
+  id          String            @id @default(uuid()) @db.VarChar(36)
+  code        String            @unique @db.VarChar(80)
+  name        String            @db.VarChar(160)
+  description String?           @db.Text
+  valueSchema String?           @map("value_schema") @db.LongText
+  system      Boolean           @default(false)
+  active      Boolean           @default(true)
+  createdAt   DateTime          @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt   DateTime          @updatedAt @map("updated_at") @db.DateTime(3)
+  values      MasterDataValue[]
+  @@map("master_data_types")
+}
+
+model MasterDataValue {
+  id               String         @id @default(uuid()) @db.VarChar(36)
+  masterDataTypeId String         @map("master_data_type_id") @db.VarChar(36)
+  code             String         @db.VarChar(80)
+  label            String         @db.VarChar(190)
+  description      String?        @db.Text
+  sortOrder        Int            @default(0) @map("sort_order")
+  metadata         String?        @db.LongText
+  active           Boolean        @default(true)
+  validFrom        DateTime?      @map("valid_from") @db.DateTime(3)
+  validTo          DateTime?      @map("valid_to") @db.DateTime(3)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt        DateTime       @updatedAt @map("updated_at") @db.DateTime(3)
+  type             MasterDataType @relation(fields: [masterDataTypeId], references: [id], onDelete: Cascade)
+  @@unique([masterDataTypeId, code])
+  @@index([masterDataTypeId, active])
+  @@map("master_data_values")
+}
+
+model AuditLog {
+  id             String      @id @default(uuid()) @db.VarChar(36)
+  actorUserId    String?     @map("actor_user_id") @db.VarChar(36)
+  actorName      String?     @map("actor_name") @db.VarChar(160)
+  action         String      @db.VarChar(100)
+  category       String      @db.VarChar(60)
+  targetType     String?     @map("target_type") @db.VarChar(60)
+  targetId       String?     @map("target_id") @db.VarChar(80)
+  targetName     String?     @map("target_name") @db.VarChar(190)
+  result         AuditResult
+  description    String?     @db.Text
+  previousValues String?     @map("previous_values") @db.LongText
+  newValues      String?     @map("new_values") @db.LongText
+  ipAddress      String?     @map("ip_address") @db.VarChar(64)
+  userAgent      String?     @map("user_agent") @db.Text
+  requestId      String      @map("request_id") @db.VarChar(36)
+  createdAt      DateTime    @default(now()) @map("created_at") @db.DateTime(3)
+  @@index([actorUserId], map: "audit_actor_idx")
+  @@index([action], map: "audit_action_idx")
+  @@index([targetType, targetId], map: "audit_target_idx")
+  @@index([createdAt], map: "audit_created_idx")
+  @@map("audit_logs")
+}
+
+model Attachment {
+  id           String           @id @default(uuid()) @db.VarChar(36)
+  entityType   String           @map("entity_type") @db.VarChar(80)
+  entityId     String           @map("entity_id") @db.VarChar(80)
+  driver       AttachmentDriver @default(LOCAL)
+  storageKey   String           @map("storage_key") @db.VarChar(500)
+  originalName String           @map("original_name") @db.VarChar(255)
+  contentType  String           @map("content_type") @db.VarChar(120)
+  byteSize     Int              @map("byte_size")
+  checksum     String?          @db.VarChar(128)
+  uploadedBy   String           @map("uploaded_by") @db.VarChar(36)
+  createdAt    DateTime         @default(now()) @map("created_at") @db.DateTime(3)
+  deletedAt    DateTime?        @map("deleted_at") @db.DateTime(3)
+  @@index([entityType, entityId])
+  @@index([uploadedBy])
+  @@map("attachments")
+}
+
+model Notification {
+  id          String                  @id @default(uuid()) @db.VarChar(36)
+  type        String                  @db.VarChar(80)
+  title       String                  @db.VarChar(190)
+  message     String                  @db.Text
+  actionUrl   String?                 @map("action_url") @db.VarChar(500)
+  channel     NotificationChannel     @default(IN_APP)
+  sourceType  String?                 @map("source_type") @db.VarChar(80)
+  sourceId    String?                 @map("source_id") @db.VarChar(80)
+  createdBy   String?                 @map("created_by") @db.VarChar(36)
+  createdAt   DateTime                @default(now()) @map("created_at") @db.DateTime(3)
+  expiresAt   DateTime?               @map("expires_at") @db.DateTime(3)
+  recipients  NotificationRecipient[]
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model NotificationRecipient {
+  id             String                      @id @default(uuid()) @db.VarChar(36)
+  notificationId String                      @map("notification_id") @db.VarChar(36)
+  userId         String                      @map("user_id") @db.VarChar(36)
+  status         NotificationRecipientStatus @default(UNREAD)
+  readAt         DateTime?                   @map("read_at") @db.DateTime(3)
+  createdAt      DateTime                    @default(now()) @map("created_at") @db.DateTime(3)
+  notification   Notification                @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user           User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([notificationId, userId])
+  @@index([userId, status])
+  @@map("notification_recipients")
+}
+
+model AssetType {
+  id String @id @default(uuid()) @db.VarChar(36)
+  code String @unique @db.VarChar(40)
+  name String @db.VarChar(120)
+  description String? @db.Text
+  active Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+  createdBy String @map("created_by") @db.VarChar(36)
+  updatedBy String @map("updated_by") @db.VarChar(36)
+  @@map("asset_types")
+}
+
+model AssetCategory {
+  id String @id @default(uuid()) @db.VarChar(36)
+  code String @unique @db.VarChar(40)
+  name String @db.VarChar(120)
+  description String? @db.Text
+  active Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+  createdBy String @map("created_by") @db.VarChar(36)
+  updatedBy String @map("updated_by") @db.VarChar(36)
+  @@map("asset_categories")
+}
+
+model Asset {
+  id String @id @default(uuid()) @db.VarChar(36)
+  code String @unique @db.VarChar(60)
+  name String @db.VarChar(160)
+  description String? @db.Text
+  assetTypeId String @map("asset_type_id") @db.VarChar(36)
+  assetCategoryId String? @map("asset_category_id") @db.VarChar(36)
+  parentAssetId String? @map("parent_asset_id") @db.VarChar(36)
+  location String @db.VarChar(190)
+  criticality AssetCriticality @default(MEDIUM)
+  status AssetStatus @default(ACTIVE)
+  ownerUserId String? @map("owner_user_id") @db.VarChar(36)
+  legacySourceId Int? @unique @map("legacy_source_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+  createdBy String @map("created_by") @db.VarChar(36)
+  updatedBy String @map("updated_by") @db.VarChar(36)
+  @@index([status])
+  @@index([assetTypeId])
+  @@index([parentAssetId])
+  @@map("assets")
+}
+
+model MaintenanceNotification {
+  id String @id @default(uuid()) @db.VarChar(36)
+  code String @unique @db.VarChar(60)
+  assetId String @map("asset_id") @db.VarChar(36)
+  title String @db.VarChar(190)
+  description String @db.Text
+  type MaintenanceNotificationType @default(CORRECTIVE)
+  priority MaintenancePriority @default(MEDIUM)
+  status MaintenanceNotificationStatus @default(NEW)
+  breakdown Boolean @default(false)
+  requestedBy String @map("requested_by") @db.VarChar(36)
+  supervisorId String? @map("supervisor_id") @db.VarChar(36)
+  dueAt DateTime? @map("due_at") @db.DateTime(3)
+  reviewedAt DateTime? @map("reviewed_at") @db.DateTime(3)
+  completedAt DateTime? @map("completed_at") @db.DateTime(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+  createdBy String @map("created_by") @db.VarChar(36)
+  updatedBy String @map("updated_by") @db.VarChar(36)
+  @@index([assetId])
+  @@index([status])
+  @@map("maintenance_notifications")
+}
+
+model NotificationReview {
+  id String @id @default(uuid()) @db.VarChar(36)
+  notificationId String @unique @map("notification_id") @db.VarChar(36)
+  decision NotificationDecision
+  note String @db.Text
+  reviewedBy String @map("reviewed_by") @db.VarChar(36)
+  reviewedAt DateTime @default(now()) @map("reviewed_at") @db.DateTime(3)
+  @@map("notification_reviews")
+}
+
+model WorkOrder {
+  id String @id @default(uuid()) @db.VarChar(36)
+  code String @unique @db.VarChar(60)
+  notificationId String @unique @map("notification_id") @db.VarChar(36)
+  assetId String @map("asset_id") @db.VarChar(36)
+  title String @db.VarChar(190)
+  description String @db.Text
+  priority MaintenancePriority @default(MEDIUM)
+  status WorkOrderStatus @default(OPEN)
+  assignedTo String? @map("assigned_to") @db.VarChar(36)
+  supervisorId String? @map("supervisor_id") @db.VarChar(36)
+  dueAt DateTime? @map("due_at") @db.DateTime(3)
+  startedAt DateTime? @map("started_at") @db.DateTime(3)
+  verifiedAt DateTime? @map("verified_at") @db.DateTime(3)
+  closedAt DateTime? @map("closed_at") @db.DateTime(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+  createdBy String @map("created_by") @db.VarChar(36)
+  updatedBy String @map("updated_by") @db.VarChar(36)
+  @@index([status])
+  @@index([assetId])
+  @@index([assignedTo])
+  @@map("work_orders")
+}
+
+model WorkOrderTask {
+  id String @id @default(uuid()) @db.VarChar(36)
+  workOrderId String @map("work_order_id") @db.VarChar(36)
+  sequence Int
+  title String @db.VarChar(190)
+  description String? @db.Text
+  required Boolean @default(true)
+  status WorkTaskStatus @default(OPEN)
+  assignedTo String? @map("assigned_to") @db.VarChar(36)
+  completedBy String? @map("completed_by") @db.VarChar(36)
+  completedAt DateTime? @map("completed_at") @db.DateTime(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+  @@unique([workOrderId, sequence])
+  @@index([workOrderId, status])
+  @@map("work_order_tasks")
+}
+
+model WorkExecutionEntry {
+  id String @id @default(uuid()) @db.VarChar(36)
+  workOrderId String @map("work_order_id") @db.VarChar(36)
+  description String @db.Text
+  minutesSpent Int @map("minutes_spent")
+  actionAt DateTime @map("action_at") @db.DateTime(3)
+  actorUserId String @map("actor_user_id") @db.VarChar(36)
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  @@index([workOrderId, actionAt])
+  @@map("work_execution_entries")
+}
+
+model WorkOrderCompletion {
+  id String @id @default(uuid()) @db.VarChar(36)
+  workOrderId String @map("work_order_id") @db.VarChar(36)
+  result String @db.VarChar(190)
+  problem String? @db.Text
+  cause String? @db.Text
+  solution String @db.Text
+  escalation String? @db.Text
+  notes String? @db.Text
+  durationMinutes Int @map("duration_minutes")
+  completedBy String @map("completed_by") @db.VarChar(36)
+  completedAt DateTime @map("completed_at") @db.DateTime(3)
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  @@index([workOrderId, completedAt])
+  @@map("work_order_completions")
+}
+
+model WorkOrderVerification {
+  id String @id @default(uuid()) @db.VarChar(36)
+  workOrderId String @map("work_order_id") @db.VarChar(36)
+  completionId String @unique @map("completion_id") @db.VarChar(36)
+  decision VerificationDecision
+  note String @db.Text
+  verifiedBy String @map("verified_by") @db.VarChar(36)
+  verifiedAt DateTime @map("verified_at") @db.DateTime(3)
+  @@index([workOrderId])
+  @@map("work_order_verifications")
+}
+
+model WorkOrderEvent {
+  id String @id @default(uuid()) @db.VarChar(36)
+  workOrderId String @map("work_order_id") @db.VarChar(36)
+  eventType String @map("event_type") @db.VarChar(60)
+  fromStatus WorkOrderStatus? @map("from_status")
+  toStatus WorkOrderStatus? @map("to_status")
+  note String? @db.Text
+  actorUserId String @map("actor_user_id") @db.VarChar(36)
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  @@index([workOrderId, createdAt])
+  @@map("work_order_events")
+}
