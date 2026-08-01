@@ -67,8 +67,22 @@ ALTER TABLE `work_order_completions`
   ADD COLUMN `manager_id` VARCHAR(36) NULL,
   ADD COLUMN `manager_comment` TEXT NULL,
   ADD COLUMN `manager_reviewed_at` DATETIME(3) NULL,
-  ADD UNIQUE INDEX `work_order_completions_revision_uq` (`work_order_id`, `revision_number`),
   ADD CONSTRAINT `work_order_completions_manager_fk` FOREIGN KEY (`manager_id`) REFERENCES `users` (`id`) ON DELETE SET NULL;
+
+UPDATE `work_order_completions` c
+JOIN (
+  SELECT current_row.id, COUNT(previous_row.id) AS revision_number
+  FROM `work_order_completions` current_row
+  JOIN `work_order_completions` previous_row
+    ON previous_row.work_order_id=current_row.work_order_id
+   AND (previous_row.completed_at < current_row.completed_at
+     OR (previous_row.completed_at=current_row.completed_at AND previous_row.id <= current_row.id))
+  GROUP BY current_row.id
+) revisions ON revisions.id=c.id
+SET c.revision_number=revisions.revision_number;
+
+ALTER TABLE `work_order_completions`
+  ADD UNIQUE INDEX `work_order_completions_revision_uq` (`work_order_id`, `revision_number`);
 
 ALTER TABLE `work_order_events`
   MODIFY COLUMN `from_status` ENUM('OPEN','BACKLOG','COMPLETION_PENDING','VERIFIED','CREATED','ASSIGNED','TECHNICIAN_ACCEPTED','IN_PROGRESS','WAITING_FOR_PARTS','WAITING_FOR_VENDOR','WAITING_FOR_ACCESS','ON_HOLD','TECHNICIAN_COMPLETED','UNDER_MANAGER_REVIEW','RETURNED_TO_TECHNICIAN','MANAGER_APPROVED','WAITING_FOR_OPERATOR_ACCEPTANCE','OPERATOR_REJECTED','OPERATOR_ACCEPTED','CLOSED','CANCELLED') NULL,

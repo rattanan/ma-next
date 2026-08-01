@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, Boxes, Building2, ClipboardList, Database, LogOut, Menu, ShieldCheck, UserRound, Users, Wrench } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Bell, Boxes, Building2, ClipboardCheck, ClipboardList, Database, LogOut, Menu, ShieldCheck, UserRound, Users, Wrench } from "lucide-react";
 import { MaLogo } from "@/components/brand/ma-logo";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -15,6 +16,7 @@ const navigation = [
   { href: "/assets", label: "Assets", icon: Boxes, permission: "ASSET_READ" },
   { href: "/maintenance", label: "Maintenance", icon: Wrench, permission: "VIEW_MAINTENANCE" },
   { href: "/work-orders", label: "Work Orders", icon: ClipboardList, permission: "VIEW_MAINTENANCE" },
+  { href: "/approvals", label: "Approve Center", icon: ClipboardCheck, permission: "NOTIFICATION_REVIEW", approvalBadge: true },
   { href: "/organization", label: "Organization", icon: Building2, permission: "VIEW_ORGANIZATION" },
   { href: "/settings/master-data", label: "Master data", icon: Database, permission: "VIEW_MASTER_DATA" },
   { href: "/notifications", label: "Notifications", icon: Bell, permission: "VIEW_NOTIFICATIONS" },
@@ -23,7 +25,9 @@ const navigation = [
   { href: "/profile", label: "My profile", icon: UserRound },
 ];
 
-function Navigation({ user }: { user: ShellUser }) {
+function ApprovalBadge({ count }: { count: number }) { return count > 0 ? <span className="ml-auto min-w-5 rounded-full bg-cyan-300 px-1.5 py-0.5 text-center text-[10px] font-extrabold leading-4 text-blue-950" aria-label={`${count} pending approvals`}>{count > 99 ? "99+" : count}</span> : null; }
+
+function Navigation({ user, approvalCount }: { user: ShellUser; approvalCount: number }) {
   const pathname = usePathname();
 
   return (
@@ -39,6 +43,7 @@ function Navigation({ user }: { user: ShellUser }) {
             <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={cn("flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-semibold text-blue-100/80 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300", active && "bg-blue-600 text-white")}>
               <Icon className="size-5" />
               {item.label}
+              {"approvalBadge" in item && item.approvalBadge && <ApprovalBadge count={approvalCount} />}
             </Link>
           );
         })}
@@ -53,6 +58,9 @@ function Navigation({ user }: { user: ShellUser }) {
 
 export function AppShell({ user, children }: { user: ShellUser; children: React.ReactNode }) {
   const router = useRouter();
+  const [approvalCount, setApprovalCount] = useState(0);
+  const loadApprovalCount = useCallback(async () => { if (!user.permissions.includes("NOTIFICATION_REVIEW")) return; try { const response = await fetch("/api/approvals/pending-count", { cache: "no-store" }); if (response.ok) setApprovalCount((await response.json()).count ?? 0); } catch { /* The next poll retries without disrupting navigation. */ } }, [user.permissions]);
+  useEffect(() => { const initial = window.setTimeout(() => void loadApprovalCount(), 0); const interval = window.setInterval(() => void loadApprovalCount(), 45_000); window.addEventListener("approval-count-changed", loadApprovalCount); return () => { window.clearTimeout(initial); window.clearInterval(interval); window.removeEventListener("approval-count-changed", loadApprovalCount); }; }, [loadApprovalCount]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -63,7 +71,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950">
       <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:shadow">Skip to content</a>
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 bg-[#0b2a4a] p-4 text-white lg:block"><Navigation user={user} /></aside>
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 bg-[#0b2a4a] p-4 text-white lg:block"><Navigation user={user} approvalCount={approvalCount} /></aside>
       <div className="lg:pl-64">
         <header className="sticky top-0 z-20 flex min-h-16 items-center gap-3 border-b border-slate-200 bg-white/95 px-4 backdrop-blur md:px-6">
           <Dialog>
@@ -71,11 +79,12 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
             <DialogContent className="border-0 bg-[#0b2a4a] text-white">
               <DialogTitle className="sr-only">Application navigation</DialogTitle>
               <DialogDescription className="sr-only">Choose a MA maintenance workspace</DialogDescription>
-              <Navigation user={user} />
+              <Navigation user={user} approvalCount={approvalCount} />
             </DialogContent>
           </Dialog>
           <Link href="/" className="lg:hidden" aria-label="MA Next home"><MaLogo compact size="sm" /></Link>
           <div className="min-w-0 flex-1"><Breadcrumbs /></div>
+          {user.permissions.includes("NOTIFICATION_REVIEW") && <Button asChild variant="ghost" size="icon" className="relative" aria-label={approvalCount ? `${approvalCount} pending approvals` : "No pending approvals"}><Link href="/approvals"><Bell className="size-5" />{approvalCount > 0 && <span className="absolute right-0.5 top-0.5 min-w-4 rounded-full bg-red-600 px-1 text-center text-[9px] font-bold leading-4 text-white">{approvalCount > 99 ? "99+" : approvalCount}</span>}</Link></Button>}
           <Button variant="ghost" size="icon" onClick={logout} aria-label="Sign out"><LogOut className="size-5" /></Button>
         </header>
         <div id="main-content" tabIndex={-1}>{children}</div>

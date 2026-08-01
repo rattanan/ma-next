@@ -29,9 +29,11 @@ const notificationTransitions: Record<NotificationStatus, Partial<Record<Notific
   COMPLETED: { WORK_ORDERS_CLOSED: "READY_TO_CLOSE" },
   DRAFT: { SUBMIT: "SUBMITTED", CANCEL: "CANCELLED" },
   SUBMITTED: { START_REVIEW: "UNDER_REVIEW" },
-  UNDER_REVIEW: { REQUEST_INFORMATION: "NEEDS_INFORMATION", APPROVE: "APPROVED", BACKLOG: "APPROVED", REJECT: "REJECTED", CANCEL: "CANCELLED" },
+  UNDER_REVIEW: { REQUEST_INFORMATION: "RETURNED", APPROVE: "APPROVED", BACKLOG: "APPROVED", REJECT: "REJECTED", CANCEL: "CANCELLED" },
+  RETURNED: { PROVIDE_INFORMATION: "SUBMITTED", CANCEL: "CANCELLED" },
   NEEDS_INFORMATION: { PROVIDE_INFORMATION: "SUBMITTED", CANCEL: "CANCELLED" },
-  REJECTED: {}, APPROVED: { START_MAINTENANCE: "IN_MAINTENANCE" },
+  REJECTED: {}, APPROVED: { START_MAINTENANCE: "CONVERTED_TO_WORK_ORDER" },
+  CONVERTED_TO_WORK_ORDER: { REQUEST_OPERATOR_ACCEPTANCE: "WAITING_FOR_OPERATOR_ACCEPTANCE" },
   IN_MAINTENANCE: { REQUEST_OPERATOR_ACCEPTANCE: "WAITING_FOR_OPERATOR_ACCEPTANCE" },
   WAITING_FOR_OPERATOR_ACCEPTANCE: { OPERATOR_ACCEPT: "OPERATOR_ACCEPTED", OPERATOR_REJECT: "OPERATOR_REJECTED" },
   OPERATOR_REJECTED: { RETURN_TO_MAINTENANCE: "IN_MAINTENANCE" },
@@ -108,7 +110,7 @@ export function transitionTask(current: WorkTaskStatus, next: WorkTaskStatus, ac
 
 // Compatibility helpers retained for legacy callers while all HTTP commands use
 // explicit action names and the governed state machine above.
-export function reviewNotification(current: NotificationStatus, decision: NotificationDecision): NotificationStatus { if (current !== "UNDER_REVIEW" && current !== "NEW") throw new WorkflowError("Only notifications under review can be decided"); return decision === "NEEDS_INFORMATION" ? "NEEDS_INFORMATION" : decision === "BACKLOG" ? "APPROVED" : decision; }
+export function reviewNotification(current: NotificationStatus, decision: NotificationDecision): NotificationStatus { if (current !== "UNDER_REVIEW" && current !== "NEW") throw new WorkflowError("Only notifications under review can be decided"); return decision === "NEEDS_INFORMATION" ? "RETURNED" : decision === "BACKLOG" ? "APPROVED" : decision; }
 export function verificationAction(decision: VerificationDecision): WorkOrderAction { return decision === "VERIFIED" ? "APPROVE_COMPLETION" : "RETURN_FOR_RECHECK"; }
 export function convertNotificationToWorkOrder(current: NotificationStatus, actor: WorkflowActor, data: { assignedTo?: string | null; backlogReason?: string | null }): WorkOrderStatus { requirePermission(actor, actor.permissions.includes("WORK_ORDER_CREATE") ? "WORK_ORDER_CREATE" : "MANAGE_WORK_ORDERS"); if (current !== "APPROVED") throw new WorkflowError(`Cannot convert a ${current.toLowerCase()} notification`); return data.assignedTo ? "ASSIGNED" : "CREATED"; }
 export function completeNotification(current: NotificationStatus, actor: WorkflowActor): NotificationStatus { return transitionNotification(current, "WORK_ORDERS_CLOSED", { actor, allWorkOrdersClosed: true }); }

@@ -146,7 +146,7 @@ export const notificationPriorityValues = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] 
 export const maintenanceSeverityValues = ["MINOR", "MODERATE", "MAJOR", "CRITICAL"] as const;
 export const equipmentOperatingStatusValues = ["RUNNING", "STOPPED", "DEGRADED", "UNKNOWN"] as const;
 export const notificationTypeValues = ["CORRECTIVE", "BREAKDOWN", "INSPECTION"] as const;
-export const notificationStatusValues = ["NEW", "BACKLOG", "COMPLETED", "DRAFT", "SUBMITTED", "UNDER_REVIEW", "NEEDS_INFORMATION", "REJECTED", "APPROVED", "IN_MAINTENANCE", "WAITING_FOR_OPERATOR_ACCEPTANCE", "OPERATOR_REJECTED", "OPERATOR_ACCEPTED", "READY_TO_CLOSE", "CLOSED", "CANCELLED"] as const;
+export const notificationStatusValues = ["NEW", "BACKLOG", "COMPLETED", "DRAFT", "SUBMITTED", "UNDER_REVIEW", "RETURNED", "NEEDS_INFORMATION", "REJECTED", "APPROVED", "CONVERTED_TO_WORK_ORDER", "IN_MAINTENANCE", "WAITING_FOR_OPERATOR_ACCEPTANCE", "OPERATOR_REJECTED", "OPERATOR_ACCEPTED", "READY_TO_CLOSE", "CLOSED", "CANCELLED"] as const;
 export const notificationDecisionValues = ["APPROVED", "BACKLOG", "REJECTED", "NEEDS_INFORMATION"] as const;
 export const workOrderStatusValues = ["OPEN", "BACKLOG", "COMPLETION_PENDING", "VERIFIED", "CREATED", "ASSIGNED", "TECHNICIAN_ACCEPTED", "IN_PROGRESS", "WAITING_FOR_PARTS", "WAITING_FOR_VENDOR", "WAITING_FOR_ACCESS", "ON_HOLD", "TECHNICIAN_COMPLETED", "UNDER_MANAGER_REVIEW", "RETURNED_TO_TECHNICIAN", "MANAGER_APPROVED", "WAITING_FOR_OPERATOR_ACCEPTANCE", "OPERATOR_REJECTED", "OPERATOR_ACCEPTED", "CLOSED", "CANCELLED"] as const;
 export const workOrderSourceTypeValues = ["MANUAL", "NOTIFICATION", "PREVENTIVE_EVENT", "SHUTDOWN_TASK", "IMPORT"] as const;
@@ -159,6 +159,9 @@ export const verificationDecisionValues = ["VERIFIED", "RETURNED"] as const;
 export const managerDecisionValues = ["PENDING", "APPROVED", "RETURNED"] as const;
 export const recheckStatusValues = ["OPEN", "IN_PROGRESS", "RESUBMITTED", "APPROVED", "RETURNED_AGAIN", "CANCELLED"] as const;
 export const operatorDecisionValues = ["ACCEPTED", "REJECTED"] as const;
+export const approvalTypeValues = ["NOTIFICATION", "WORK_ORDER", "WORK_COMPLETION", "MATERIAL_REQUEST", "PURCHASE_REQUEST", "PREVENTIVE_MAINTENANCE"] as const;
+export const approvalStatusValues = ["PENDING", "IN_REVIEW", "APPROVED", "RETURNED", "REJECTED", "CANCELLED"] as const;
+export const approvalActionValues = ["SUBMITTED", "OPENED", "APPROVED", "RETURNED", "REJECTED", "RESUBMITTED", "CANCELLED"] as const;
 
 export type NotificationStatus = (typeof notificationStatusValues)[number];
 export type NotificationDecision = (typeof notificationDecisionValues)[number];
@@ -331,7 +334,13 @@ export const maintenanceNotifications = mysqlTable("maintenance_notifications", 
   title: varchar("title", { length: 190 }).notNull(),
   description: text("description").notNull(),
   symptoms: text("symptoms"),
+  problemCategory: varchar("problem_category", { length: 120 }),
   operationalImpact: text("operational_impact"),
+  safetyImpact: text("safety_impact"),
+  productionImpact: text("production_impact"),
+  incidentAt: datetime("incident_at", { mode: "date", fsp: 3 }),
+  responsibleGroup: varchar("responsible_group", { length: 160 }),
+  remarks: text("remarks"),
   requestedUrgency: varchar("requested_urgency", { length: 80 }),
   contactPerson: varchar("contact_person", { length: 160 }),
   contactPhone: varchar("contact_phone", { length: 60 }),
@@ -372,6 +381,46 @@ export const notificationReviews = mysqlTable("notification_reviews", {
   reviewedBy: varchar("reviewed_by", { length: 36 }).notNull().references(() => users.id),
   reviewedAt: datetime("reviewed_at", { mode: "date", fsp: 3 }).notNull(),
 }, (table) => [index("notification_reviews_history_idx").on(table.notificationId, table.reviewedAt)]);
+
+export const approvalTasks = mysqlTable("approval_tasks", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  approvalType: mysqlEnum("approval_type", approvalTypeValues).notNull(),
+  referenceId: varchar("reference_id", { length: 36 }).notNull(),
+  referenceNumber: varchar("reference_number", { length: 80 }).notNull(),
+  title: varchar("title", { length: 190 }).notNull(),
+  requestedById: varchar("requested_by_id", { length: 36 }).notNull().references(() => users.id),
+  requestedAt: datetime("requested_at", { mode: "date", fsp: 3 }).notNull(),
+  assignedApproverId: varchar("assigned_approver_id", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+  assignedRole: varchar("assigned_role", { length: 80 }),
+  status: mysqlEnum("status", approvalStatusValues).notNull().default("PENDING"),
+  priority: mysqlEnum("priority", notificationPriorityValues),
+  organizationId: varchar("organization_id", { length: 36 }),
+  siteId: varchar("site_id", { length: 36 }),
+  departmentId: varchar("department_id", { length: 36 }),
+  reviewedAt: datetime("reviewed_at", { mode: "date", fsp: 3 }),
+  completedAt: datetime("completed_at", { mode: "date", fsp: 3 }),
+  decisionById: varchar("decision_by_id", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+  decisionComment: text("decision_comment"),
+  returnReason: text("return_reason"),
+  approvalRound: int("approval_round").notNull().default(1),
+  createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
+  updatedAt: datetime("updated_at", { mode: "date", fsp: 3 }).notNull(),
+}, (table) => [
+  uniqueIndex("approval_tasks_reference_round_uq").on(table.approvalType, table.referenceId, table.approvalRound),
+  index("approval_tasks_assignee_status_idx").on(table.assignedApproverId, table.status),
+  index("approval_tasks_role_status_idx").on(table.assignedRole, table.status),
+  index("approval_tasks_scope_idx").on(table.organizationId, table.siteId, table.departmentId),
+  index("approval_tasks_requested_idx").on(table.requestedAt),
+]);
+
+export const approvalHistory = mysqlTable("approval_history", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  approvalTaskId: varchar("approval_task_id", { length: 36 }).notNull().references(() => approvalTasks.id, { onDelete: "cascade" }),
+  action: mysqlEnum("action", approvalActionValues).notNull(),
+  actionById: varchar("action_by_id", { length: 36 }).notNull().references(() => users.id),
+  comment: text("comment"),
+  createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
+}, (table) => [index("approval_history_task_idx").on(table.approvalTaskId, table.createdAt)]);
 
 export const workOrders = mysqlTable("work_orders", {
   id: varchar("id", { length: 36 }).primaryKey(),

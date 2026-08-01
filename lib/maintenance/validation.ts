@@ -38,7 +38,13 @@ export const notificationSchema = z.object({
   title: z.string().trim().min(3).max(190),
   description: z.string().trim().min(5).max(8000),
   symptoms: z.string().trim().max(8000).optional(),
+  problemCategory: z.string().trim().max(120).optional(),
   operationalImpact: z.string().trim().max(8000).optional(),
+  safetyImpact: z.string().trim().max(8000).optional(),
+  productionImpact: z.string().trim().max(8000).optional(),
+  incidentAt: z.iso.datetime().nullable().optional(),
+  responsibleGroup: z.string().trim().max(160).optional(),
+  remarks: z.string().trim().max(8000).optional(),
   requestedUrgency: z.string().trim().max(80).optional(),
   contactPerson: z.string().trim().max(160).optional(),
   contactPhone: z.string().trim().max(60).optional(),
@@ -61,7 +67,7 @@ export const governedNotificationReviewSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("START_REVIEW"), comment: optionalText(4000) }),
   z.object({ action: z.literal("REQUEST_INFORMATION"), comment: z.string().trim().min(3).max(4000) }),
   z.object({ action: z.literal("REJECT"), comment: z.string().trim().min(3).max(4000) }),
-  z.object({ action: z.literal("APPROVE"), comment: optionalText(4000) }),
+  z.object({ action: z.literal("APPROVE"), comment: optionalText(4000), responsibleGroup: z.string().trim().min(2).max(160).optional(), priority: z.enum(notificationPriorityValues).optional(), type: z.enum(notificationTypeValues).optional() }),
 ]);
 
 export const notificationReviewSchema = z.object({

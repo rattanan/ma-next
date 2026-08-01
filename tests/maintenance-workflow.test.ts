@@ -11,7 +11,11 @@ describe("notification lifecycle", () => {
     let status = transitionNotification("DRAFT", "SUBMIT", { actor: operator });
     status = transitionNotification(status, "START_REVIEW", { actor: manager });
     status = transitionNotification(status, "REQUEST_INFORMATION", { actor: manager, note: "Add operating readings" });
+    expect(status).toBe("RETURNED");
     expect(transitionNotification(status, "PROVIDE_INFORMATION", { actor: operator })).toBe("SUBMITTED");
+  });
+  it("marks an approved notification as converted when a work order is created", () => {
+    expect(transitionNotification("APPROVED", "START_MAINTENANCE", { actor: manager })).toBe("CONVERTED_TO_WORK_ORDER");
   });
   it("requires linked work closure before final notification closure", () => {
     expect(() => transitionNotification("READY_TO_CLOSE", "CLOSE", { actor: operator, note: "Confirmed", allWorkOrdersClosed: false })).toThrow("All linked work orders");
