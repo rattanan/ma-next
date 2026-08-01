@@ -1,5 +1,7 @@
 # Work Order implementation plan
 
+Status: phases 3–7 implemented on 2026-08-01. Migration 0004 and seed were applied to DEV; remaining items below are explicit parity decisions, not placeholder UI.
+
 ## Files and data
 
 - Modify `prisma/schema.prisma`, `lib/db/schema.ts`, `prisma/seed.ts`, permissions, maintenance validation/workflow/service and shared navigation.

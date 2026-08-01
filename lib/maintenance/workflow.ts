@@ -113,7 +113,7 @@ export function completionReady(tasks: ReadonlyArray<{ required: boolean; status
 
 export function transitionTask(current: WorkTaskStatus, next: WorkTaskStatus, actor: WorkflowActor) {
   requirePermission(actor, "EXECUTE_WORK_ORDERS");
-  const allowed: Record<WorkTaskStatus, readonly WorkTaskStatus[]> = { OPEN: ["IN_PROGRESS", "COMPLETED"], IN_PROGRESS: ["OPEN", "COMPLETED"], COMPLETED: ["OPEN"] };
+  const allowed: Record<WorkTaskStatus, readonly WorkTaskStatus[]> = { OPEN: ["IN_PROGRESS", "BACKLOG", "COMPLETED"], IN_PROGRESS: ["OPEN", "BACKLOG", "COMPLETED"], BACKLOG: ["OPEN", "IN_PROGRESS"], COMPLETED: ["OPEN"] };
   if (!allowed[current].includes(next)) throw new WorkflowError(`Cannot move a ${current.toLowerCase()} task to ${next.toLowerCase()}`);
   return next;
 }

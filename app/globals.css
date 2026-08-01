@@ -34,6 +34,18 @@
   --radius-card: 14px; --ease: 180ms ease;
 }
 
+.wo-input {
+  min-height: 2.75rem;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: .5rem;
+  background: var(--surface);
+  padding: .625rem .75rem;
+  color: var(--text-primary);
+  font-size: .875rem;
+}
+.wo-input:focus-visible { outline: 2px solid var(--primary-600); outline-offset: 2px; }
+
 /* Maintenance workflow */
 .skip-link {
   position: fixed;

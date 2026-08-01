@@ -1,5 +1,25 @@
 # Work Order functional traceability matrix
 
+## Phase 3–7 implementation evidence — 2026-08-01
+
+| Function | Target evidence | Automated evidence | Status |
+|---|---|---|---|
+| WO-001 list/search/filter/sort | `/work-orders`, `GET /api/work-orders`, `listWorkOrders` | bounded-query validation and production build | Implemented |
+| WO-002 creation/source conversion | `/work-orders/new`, `POST /api/work-orders`, approved Notification conversion service | creation/workflow/service tests | Implemented; PM/shutdown source producers remain external integrations |
+| WO-004 assignment | Planning tab, `assign` command, `WorkOrderAssignment` | permission and validation tests | Implemented |
+| WO-005/006 Job Steps and Checklist | Execution tabs and task commands | workflow, required-completion and E2E tests | Implemented |
+| WO-007 backlog/resume | Work Order and Job Step dedicated commands, `WorkOrderBacklogEvent` | reason/state/permission tests | Implemented |
+| WO-013 tool loan | Tools tab and tool command service | payload/transition and close validation tests | Implemented; authoritative legacy mapping needs confirmation |
+| WO-014 materials | Materials tab and `workOrderInventoryAdapter` | validation and record-only boundary tests | Implemented boundary; Inventory ledger integration pending |
+| WO-015 labor/OT | Labor tab and `WorkExecutionEntry` | normal/OT validation tests | Implemented; overlap/approval rules need confirmation |
+| WO-016 attachments | shared attachment service and completion photo workflow | attachment/API and completion tests | Implemented |
+| WO-017 acceptance/safety | Acceptance and Safety/LOTO tabs | acceptance validation tests | Implemented |
+| WO-018/019 completion/verification/closure | centralized commands and service transactions | workflow, permission and corrective E2E tests | Implemented |
+| WO-020 history/audit/notifications | append-only events/backlog/assignment plus audit/notification services | workflow/service tests | Implemented |
+| WO-022 print/export | authorized HTML detail/tool/material forms and JSON export | build/typecheck; golden-layout acceptance pending | Implemented subject to layout acceptance |
+
+The detailed baseline rows below remain the authoritative legacy-to-target inventory. `NEEDS_CONFIRMATION` notes are intentionally retained and are not silently resolved by implementation.
+
 Migration status values: **Baseline only** = analyzed, not implemented by this phase; **Existing partial** = pre-existing MA Next corrective code covers part of the function but has not been accepted against this full baseline. Candidate target names are Phase 3 placeholders.
 
 | ID / function | FDS | Legacy route / source files / tables | Current behavior | Inputs / validations | Roles / state | Side effects / report | Candidate target route / service / entity | Acceptance / test | Migration status / NEEDS_CONFIRMATION |

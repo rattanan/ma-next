@@ -142,6 +142,7 @@ enum WorkOrderToolLoanStatus {
 enum WorkTaskStatus {
   OPEN
   IN_PROGRESS
+  BACKLOG
   COMPLETED
 }
 enum WorkTaskKind {
@@ -827,6 +828,10 @@ model WorkExecutionEntry {
   id String @id @default(uuid()) @db.VarChar(36)
   workOrderId String @map("work_order_id") @db.VarChar(36)
   description String @db.Text
+  departmentId String? @map("department_id") @db.VarChar(36)
+  employeeId String? @map("employee_id") @db.VarChar(36)
+  positionName String? @map("position_name") @db.VarChar(160)
+  workType String? @map("work_type") @db.VarChar(80)
   minutesSpent Int @map("minutes_spent")
   overtimeMinutes Int @default(0) @map("overtime_minutes")
   overtimeMultiplier Decimal @default(1) @map("overtime_multiplier") @db.Decimal(4, 2)
@@ -861,6 +866,11 @@ model WorkOrderSparePart {
   workOrderId String @map("work_order_id") @db.VarChar(36)
   sparePartId String @map("spare_part_id") @db.VarChar(36)
   quantity Decimal @db.Decimal(14, 4)
+  transactionType String @default("CONSUMED") @map("transaction_type") @db.VarChar(40)
+  warehouse String? @db.VarChar(120)
+  storageLocation String? @map("storage_location") @db.VarChar(120)
+  unitSnapshot String? @map("unit_snapshot") @db.VarChar(40)
+  referenceDocument String? @map("reference_document") @db.VarChar(190)
   note String? @db.Text
   usedBy String @map("used_by") @db.VarChar(36)
   usedAt DateTime @map("used_at") @db.DateTime(3)

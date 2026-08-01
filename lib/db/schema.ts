@@ -151,7 +151,7 @@ export const workOrderSourceTypeValues = ["MANUAL", "NOTIFICATION", "PREVENTIVE_
 export const workOrderTypeValues = ["PREVENTIVE", "CORRECTIVE", "SHUTDOWN", "OTHER_ASSIGNMENT"] as const;
 export const workOrderBacklogScopeValues = ["WORK_ORDER", "JOB_STEP"] as const;
 export const workOrderToolLoanStatusValues = ["PLANNED", "ISSUED", "RETURNED", "CANCELLED"] as const;
-export const workTaskStatusValues = ["OPEN", "IN_PROGRESS", "COMPLETED"] as const;
+export const workTaskStatusValues = ["OPEN", "IN_PROGRESS", "BACKLOG", "COMPLETED"] as const;
 export const workTaskKindValues = ["JOB_STEP", "CHECKLIST"] as const;
 export const verificationDecisionValues = ["VERIFIED", "RETURNED"] as const;
 
@@ -448,6 +448,10 @@ export const workExecutionEntries = mysqlTable("work_execution_entries", {
   id: varchar("id", { length: 36 }).primaryKey(),
   workOrderId: varchar("work_order_id", { length: 36 }).notNull().references(() => workOrders.id, { onDelete: "cascade" }),
   description: text("description").notNull(),
+  departmentId: varchar("department_id", { length: 36 }),
+  employeeId: varchar("employee_id", { length: 36 }),
+  positionName: varchar("position_name", { length: 160 }),
+  workType: varchar("work_type", { length: 80 }),
   minutesSpent: int("minutes_spent").notNull(),
   overtimeMinutes: int("overtime_minutes").notNull().default(0),
   overtimeMultiplier: decimal("overtime_multiplier", { precision: 4, scale: 2 }).notNull().default("1"),
@@ -478,6 +482,11 @@ export const workOrderSpareParts = mysqlTable("work_order_spare_parts", {
   workOrderId: varchar("work_order_id", { length: 36 }).notNull().references(() => workOrders.id, { onDelete: "cascade" }),
   sparePartId: varchar("spare_part_id", { length: 36 }).notNull().references(() => spareParts.id),
   quantity: decimal("quantity", { precision: 14, scale: 4 }).notNull(),
+  transactionType: varchar("transaction_type", { length: 40 }).notNull().default("CONSUMED"),
+  warehouse: varchar("warehouse", { length: 120 }),
+  storageLocation: varchar("storage_location", { length: 120 }),
+  unitSnapshot: varchar("unit_snapshot", { length: 40 }),
+  referenceDocument: varchar("reference_document", { length: 190 }),
   note: text("note"),
   usedBy: varchar("used_by", { length: 36 }).notNull().references(() => users.id),
   usedAt: datetime("used_at", { mode: "date", fsp: 3 }).notNull(),

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { assetCriticalityValues, assetStatusValues, assetStructureLevelValues, equipmentOperatingStatusValues, maintenanceSeverityValues, notificationDecisionValues, notificationPriorityValues, notificationTypeValues, verificationDecisionValues, workOrderSourceTypeValues, workOrderStatusValues, workOrderTypeValues, workTaskKindValues, workTaskStatusValues } from "../db/schema";
+import { assetCriticalityValues, assetStatusValues, assetStructureLevelValues, equipmentOperatingStatusValues, maintenanceSeverityValues, notificationDecisionValues, notificationPriorityValues, notificationTypeValues, verificationDecisionValues, workOrderSourceTypeValues, workOrderStatusValues, workOrderTypeValues, workTaskKindValues } from "../db/schema";
 
 const optionalText = (max: number) => z.string().trim().max(max).optional().default("");
 const optionalId = z.string().uuid().nullable().optional();
@@ -72,7 +72,9 @@ export const taskSchema = z.object({
 });
 
 export const taskStatusSchema = z.object({
-  status: z.enum(workTaskStatusValues),
+  // BACKLOG is intentionally excluded: it requires a reason and must use the
+  // dedicated append-only backlog command.
+  status: z.enum(["OPEN", "IN_PROGRESS", "COMPLETED"]),
   result: optionalText(8000),
   responseValue: optionalText(8000),
   remarks: optionalText(8000),
@@ -129,16 +131,47 @@ export const workOrderCreateSchema = z.object({
   if (value.plannedStartAt && value.plannedFinishAt && new Date(value.plannedFinishAt) < new Date(value.plannedStartAt)) context.addIssue({ code: "custom", path: ["plannedFinishAt"], message: "Planned finish must not precede planned start" });
 });
 
-export const workOrderUpdateSchema = workOrderCreateSchema.omit({ sourceType: true, sourceRecordId: true, workType: true, assetId: true, backlogReason: true }).partial().strict();
+export const workOrderUpdateSchema = z.object({
+  title: z.string().trim().min(3).max(190).optional(),
+  description: z.string().trim().min(5).max(8000).optional(),
+  priority: z.enum(notificationPriorityValues).optional(),
+  severity: z.enum(maintenanceSeverityValues).optional(),
+  equipmentOperatingStatus: z.enum(equipmentOperatingStatusValues).optional(),
+  departmentId: optionalId,
+  crewName: z.string().trim().max(160).nullable().optional(),
+  assignedTo: optionalId,
+  leadUserId: optionalId,
+  supervisorId: optionalId,
+  vendorName: z.string().trim().max(190).nullable().optional(),
+  customerName: z.string().trim().max(190).nullable().optional(),
+  reporterName: z.string().trim().max(160).nullable().optional(),
+  reporterPhone: z.string().trim().max(60).nullable().optional(),
+  reportedAt: z.iso.datetime().nullable().optional(),
+  plannedStartAt: z.iso.datetime().nullable().optional(),
+  plannedFinishAt: z.iso.datetime().nullable().optional(),
+  dueAt: z.iso.datetime().nullable().optional(),
+  estimatedMinutes: z.coerce.number().int().nonnegative().max(525600).nullable().optional(),
+  checklistTemplateId: optionalId,
+  maintenanceTemplateId: optionalId,
+  notes: optionalText(8000),
+}).strict().superRefine((value, context) => {
+  if (value.plannedStartAt && value.plannedFinishAt && new Date(value.plannedFinishAt) < new Date(value.plannedStartAt)) context.addIssue({ code: "custom", path: ["plannedFinishAt"], message: "Planned finish must not precede planned start" });
+});
 export const assignmentSchema = z.object({ departmentId: optionalId, assignedTo: z.string().uuid(), teamName: z.string().trim().max(160).nullable().optional(), positionName: z.string().trim().max(160).nullable().optional(), assignmentType: z.string().trim().min(2).max(40).default("TECHNICIAN"), note: z.string().trim().min(3).max(4000) });
 export const backlogSchema = z.object({ reasonCode: z.string().trim().max(60).nullable().optional(), reason: z.string().trim().min(3).max(8000), category: z.string().trim().max(80).nullable().optional(), expectedResumeAt: z.iso.datetime().nullable().optional() });
 export const resumeSchema = z.object({ resolution: z.string().trim().min(3).max(8000) });
+export const taskBacklogSchema = backlogSchema.extend({ taskId: z.string().uuid() });
+export const taskResumeSchema = resumeSchema.extend({ taskId: z.string().uuid() });
 export const toolLoanSchema = z.object({ toolCode: z.string().trim().min(1).max(80), toolName: z.string().trim().min(2).max(190), quantity: z.coerce.number().positive().max(1_000_000), usageCondition: optionalText(4000), notes: optionalText(4000) });
 export const toolLoanCommandSchema = z.object({ loanId: z.string().uuid(), command: z.enum(["ISSUE", "RETURN", "CANCEL"]), note: optionalText(4000) });
 export const acceptanceSchema = z.object({ acceptedAt: z.iso.datetime(), details: z.string().trim().min(3).max(8000), notes: optionalText(8000), lotoReference: optionalText(190), isolationPoints: optionalText(8000), permitNumber: optionalText(120), safetyInstructions: optionalText(8000), hazards: optionalText(8000), operatingConditions: optionalText(8000), logSheetReference: optionalText(190), testResult: optionalText(8000), handoverDetails: optionalText(8000), attachmentIds: z.array(z.string().uuid()).max(20).default([]) });
 
 export const executionEntrySchema = z.object({
   description: z.string().trim().min(3).max(8000),
+  departmentId: optionalId,
+  employeeId: optionalId,
+  positionName: optionalText(160),
+  workType: optionalText(80),
   minutesSpent: z.coerce.number().int().min(1).max(1440),
   overtimeMinutes: z.coerce.number().int().min(0).max(1440).default(0),
   overtimeMultiplier: z.coerce.number().min(1).max(3).default(1),
@@ -160,6 +193,11 @@ export const completionSchema = z.object({
 export const sparePartUsageSchema = z.object({
   sparePartId: z.string().uuid(),
   quantity: z.coerce.number().positive().max(1_000_000),
+  transactionType: z.enum(["REQUESTED", "RESERVED", "ISSUED", "RETURNED", "CONSUMED"]).default("CONSUMED"),
+  warehouse: optionalText(120),
+  storageLocation: optionalText(120),
+  unit: optionalText(40),
+  referenceDocument: optionalText(190),
   note: optionalText(4000),
 });
 

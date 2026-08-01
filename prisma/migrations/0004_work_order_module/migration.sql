@@ -29,7 +29,21 @@ ALTER TABLE `work_orders`
 
 UPDATE `work_orders` SET `source_type`='NOTIFICATION', `source_record_id`=`notification_id` WHERE `notification_id` IS NOT NULL;
 
+ALTER TABLE `work_execution_entries`
+  ADD COLUMN `department_id` VARCHAR(36) NULL,
+  ADD COLUMN `employee_id` VARCHAR(36) NULL,
+  ADD COLUMN `position_name` VARCHAR(160) NULL,
+  ADD COLUMN `work_type` VARCHAR(80) NULL;
+
+ALTER TABLE `work_order_spare_parts`
+  ADD COLUMN `transaction_type` VARCHAR(40) NOT NULL DEFAULT 'CONSUMED',
+  ADD COLUMN `warehouse` VARCHAR(120) NULL,
+  ADD COLUMN `storage_location` VARCHAR(120) NULL,
+  ADD COLUMN `unit_snapshot` VARCHAR(40) NULL,
+  ADD COLUMN `reference_document` VARCHAR(190) NULL;
+
 ALTER TABLE `work_order_tasks`
+  MODIFY COLUMN `status` ENUM('OPEN','IN_PROGRESS','BACKLOG','COMPLETED') NOT NULL DEFAULT 'OPEN',
   ADD COLUMN `asset_id` VARCHAR(36) NULL,
   ADD COLUMN `due_at` DATETIME(3) NULL,
   ADD COLUMN `estimated_minutes` INT NULL,

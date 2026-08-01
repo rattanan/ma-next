@@ -16,6 +16,7 @@ import { logger } from "../logger";
 import { completeNotification, convertNotificationToWorkOrder, initializeNotification, transitionNotification, transitionTask, transitionWorkOrder, verificationAction } from "./workflow";
 import type { z } from "zod";
 import type { assetSchema, closeSchema, completionSchema, executionEntrySchema, notificationReviewSchema, notificationSchema, sparePartUsageSchema, taskSchema, taskStatusSchema, verificationSchema } from "./validation";
+import { workOrderInventoryAdapter } from "@/lib/work-orders/inventory-adapter";
 
 type Actor = AuthenticatedUser;
 type AssetInput = z.infer<typeof assetSchema>;
@@ -69,7 +70,7 @@ export async function getWorkOrderDetail(id: string) {
     db.select().from(workOrderCompletions).where(eq(workOrderCompletions.workOrderId, id)).orderBy(desc(workOrderCompletions.completedAt)),
     db.select().from(workOrderVerifications).where(eq(workOrderVerifications.workOrderId, id)).orderBy(desc(workOrderVerifications.verifiedAt)),
     db.select().from(workOrderEvents).where(eq(workOrderEvents.workOrderId, id)).orderBy(desc(workOrderEvents.createdAt)),
-    db.select({ id: workOrderSpareParts.id, sparePartId: workOrderSpareParts.sparePartId, code: spareParts.code, name: spareParts.name, quantity: workOrderSpareParts.quantity, unit: spareParts.unit, note: workOrderSpareParts.note, usedAt: workOrderSpareParts.usedAt }).from(workOrderSpareParts).innerJoin(spareParts, eq(workOrderSpareParts.sparePartId, spareParts.id)).where(eq(workOrderSpareParts.workOrderId, id)).orderBy(desc(workOrderSpareParts.usedAt)),
+    db.select({ id: workOrderSpareParts.id, sparePartId: workOrderSpareParts.sparePartId, code: spareParts.code, name: spareParts.name, quantity: workOrderSpareParts.quantity, unit: workOrderSpareParts.unitSnapshot, transactionType: workOrderSpareParts.transactionType, warehouse: workOrderSpareParts.warehouse, storageLocation: workOrderSpareParts.storageLocation, referenceDocument: workOrderSpareParts.referenceDocument, note: workOrderSpareParts.note, usedAt: workOrderSpareParts.usedAt }).from(workOrderSpareParts).innerJoin(spareParts, eq(workOrderSpareParts.sparePartId, spareParts.id)).where(eq(workOrderSpareParts.workOrderId, id)).orderBy(desc(workOrderSpareParts.usedAt)),
     db.select().from(workOrderAssignments).where(eq(workOrderAssignments.workOrderId, id)).orderBy(desc(workOrderAssignments.assignedAt)),
     db.select().from(workOrderBacklogEvents).where(eq(workOrderBacklogEvents.workOrderId, id)).orderBy(desc(workOrderBacklogEvents.enteredAt)),
     db.select().from(workOrderToolLoans).where(eq(workOrderToolLoans.workOrderId, id)).orderBy(desc(workOrderToolLoans.createdAt)),
@@ -179,7 +180,7 @@ export async function addExecutionEntry(id: string, input: ExecutionInput, actor
   return db.transaction(async (tx) => {
     const order = await orderForMutation(tx, id);
     if (order.status !== "IN_PROGRESS") throw new HttpError(409, "Execution can only be recorded while work is in progress", "INVALID_WORK_ORDER_STATUS");
-    await tx.insert(workExecutionEntries).values({ id: entryId, workOrderId: id, description: input.description, minutesSpent: input.minutesSpent, overtimeMinutes: input.overtimeMinutes, overtimeMultiplier: String(input.overtimeMultiplier), actionAt: new Date(input.actionAt), actorUserId: actor.id, createdAt: now });
+    await tx.insert(workExecutionEntries).values({ id: entryId, workOrderId: id, description: input.description, departmentId: input.departmentId ?? null, employeeId: input.employeeId ?? actor.id, positionName: input.positionName ?? null, workType: input.workType ?? null, minutesSpent: input.minutesSpent, overtimeMinutes: input.overtimeMinutes, overtimeMultiplier: String(input.overtimeMultiplier), actionAt: new Date(input.actionAt), actorUserId: actor.id, createdAt: now });
     await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: id, eventType: "EXECUTION_RECORDED", note: input.description, actorUserId: actor.id, createdAt: now });
     await tx.insert(auditLogs).values(auditRow({ actor, action: "WORK_EXECUTION_RECORDED", category: "MAINTENANCE", targetType: "WORK_ORDER", targetId: id, targetName: order.code, description: `Recorded ${input.minutesSpent} minutes on ${order.code}`, newValues: input, meta, createdAt: now }));
     return { id: entryId };
@@ -188,13 +189,14 @@ export async function addExecutionEntry(id: string, input: ExecutionInput, actor
 
 export async function addUsedSparePart(id: string, input: SparePartUsageInput, actor: Actor, meta: RequestMeta) {
   const now = new Date(); const usageId = randomUUID();
+  workOrderInventoryAdapter.prepare(input);
   return db.transaction(async (tx) => {
     const order = await orderForMutation(tx, id);
     if (order.status !== "IN_PROGRESS") throw new HttpError(409, "Spare parts can only be recorded while work is in progress", "INVALID_WORK_ORDER_STATUS");
     if (!actor.permissions.includes("EXECUTE_WORK_ORDERS")) throw new HttpError(403, "Missing workflow permission", "WORKFLOW_FORBIDDEN");
-    const part = (await tx.select({ id: spareParts.id, code: spareParts.code }).from(spareParts).where(eq(spareParts.id, input.sparePartId)).limit(1))[0];
+    const part = (await tx.select({ id: spareParts.id, code: spareParts.code, unit: spareParts.unit }).from(spareParts).where(eq(spareParts.id, input.sparePartId)).limit(1))[0];
     if (!part) throw new HttpError(404, "Spare part not found", "SPARE_PART_NOT_FOUND");
-    await tx.insert(workOrderSpareParts).values({ id: usageId, workOrderId: id, sparePartId: input.sparePartId, quantity: String(input.quantity), note: input.note || null, usedBy: actor.id, usedAt: now });
+    await tx.insert(workOrderSpareParts).values({ id: usageId, workOrderId: id, sparePartId: input.sparePartId, quantity: String(input.quantity), transactionType: input.transactionType, warehouse: input.warehouse ?? null, storageLocation: input.storageLocation ?? null, unitSnapshot: input.unit || part.unit, referenceDocument: input.referenceDocument ?? null, note: input.note || null, usedBy: actor.id, usedAt: now });
     await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: id, eventType: "SPARE_PART_USED", note: `${part.code} × ${input.quantity}`, actorUserId: actor.id, createdAt: now });
     await tx.insert(auditLogs).values(auditRow({ actor, action: "WORK_ORDER_SPARE_PART_USED", category: "MAINTENANCE", targetType: "WORK_ORDER", targetId: id, targetName: order.code, description: `Recorded spare part ${part.code}`, newValues: input, meta, createdAt: now }));
     return { id: usageId };
@@ -237,7 +239,7 @@ export async function closeWorkOrder(id: string, input: CloseInput, actor: Actor
     if (issuedTools.length) throw new HttpError(409, "Return all issued tools before closing the work order", "TOOLS_NOT_RETURNED");
     const notification = order.notificationId ? (await tx.select({ status: maintenanceNotifications.status }).from(maintenanceNotifications).where(eq(maintenanceNotifications.id, order.notificationId)).limit(1))[0] : null;
     const notificationStatus = notification ? completeNotification(notification.status, actor) : null;
-    await tx.update(workOrders).set({ status, closedAt: now, updatedAt: now, updatedBy: actor.id }).where(eq(workOrders.id, id));
+    await tx.update(workOrders).set({ status, actualFinishAt: order.actualFinishAt ?? now, closedAt: now, updatedAt: now, updatedBy: actor.id }).where(eq(workOrders.id, id));
     if (notification && notificationStatus && order.notificationId) await tx.update(maintenanceNotifications).set({ status: notificationStatus, completedAt: now, updatedAt: now, updatedBy: actor.id }).where(eq(maintenanceNotifications.id, order.notificationId));
     await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: id, eventType: "WORK_ORDER_CLOSED", fromStatus: order.status, toStatus: status, note: input.note, actorUserId: actor.id, createdAt: now });
     await tx.insert(auditLogs).values(auditRow({ actor, action: "WORK_ORDER_CLOSED", category: "MAINTENANCE", targetType: "WORK_ORDER", targetId: id, targetName: order.code, description: `Closed ${order.code}`, previousValues: { status: order.status }, newValues: { status, note: input.note }, meta, createdAt: now }));

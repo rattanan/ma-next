@@ -4,7 +4,7 @@ import type { z } from "zod";
 import { db } from "@/lib/db";
 import {
   assets, auditLogs, workOrderAcceptances, workOrderAssignments, workOrderBacklogEvents, workOrderEvents,
-  workOrderToolLoans, workOrders, type WorkOrderStatus,
+  workOrderTasks, workOrderToolLoans, workOrders, type WorkOrderStatus,
 } from "@/lib/db/schema";
 import type { AuthenticatedUser } from "@/lib/auth/session";
 import type { RequestMeta } from "@/lib/auth/request";
@@ -12,8 +12,8 @@ import { maskSensitive } from "@/lib/auth/mask";
 import { HttpError } from "@/lib/http";
 import { createNotification } from "@/lib/notifications/service";
 import { logger } from "@/lib/logger";
-import { transitionWorkOrder } from "@/lib/maintenance/workflow";
-import type { acceptanceSchema, assignmentSchema, backlogSchema, resumeSchema, toolLoanCommandSchema, toolLoanSchema, workOrderCreateSchema, workOrderListSchema, workOrderUpdateSchema } from "@/lib/maintenance/validation";
+import { transitionTask, transitionWorkOrder } from "@/lib/maintenance/workflow";
+import type { acceptanceSchema, assignmentSchema, backlogSchema, resumeSchema, taskBacklogSchema, taskResumeSchema, toolLoanCommandSchema, toolLoanSchema, workOrderCreateSchema, workOrderListSchema, workOrderUpdateSchema } from "@/lib/maintenance/validation";
 
 type Actor = AuthenticatedUser;
 type ListInput = z.infer<typeof workOrderListSchema>;
@@ -22,6 +22,8 @@ type UpdateInput = z.infer<typeof workOrderUpdateSchema>;
 type AssignmentInput = z.infer<typeof assignmentSchema>;
 type BacklogInput = z.infer<typeof backlogSchema>;
 type ResumeInput = z.infer<typeof resumeSchema>;
+type TaskBacklogInput = z.infer<typeof taskBacklogSchema>;
+type TaskResumeInput = z.infer<typeof taskResumeSchema>;
 type ToolInput = z.infer<typeof toolLoanSchema>;
 type ToolCommandInput = z.infer<typeof toolLoanCommandSchema>;
 type AcceptanceInput = z.infer<typeof acceptanceSchema>;
@@ -96,7 +98,16 @@ export async function updateWorkOrder(id: string, input: UpdateInput, actor: Act
     const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1))[0];
     if (!order) throw new HttpError(404, "Work order not found", "WORK_ORDER_NOT_FOUND");
     if (["COMPLETION_PENDING", "VERIFIED", "CLOSED"].includes(order.status)) throw new HttpError(409, "Submitted or closed work orders cannot be edited", "WORK_ORDER_LOCKED");
-    const values = { ...input, dueAt: dateOrNull(input.dueAt), reportedAt: dateOrNull(input.reportedAt), plannedStartAt: dateOrNull(input.plannedStartAt), plannedFinishAt: dateOrNull(input.plannedFinishAt), updatedAt: now, updatedBy: actor.id };
+    const { dueAt, reportedAt, plannedStartAt, plannedFinishAt, ...scalarValues } = input;
+    const values = {
+      ...scalarValues,
+      ...(dueAt !== undefined ? { dueAt: dateOrNull(dueAt) } : {}),
+      ...(reportedAt !== undefined ? { reportedAt: dateOrNull(reportedAt) } : {}),
+      ...(plannedStartAt !== undefined ? { plannedStartAt: dateOrNull(plannedStartAt) } : {}),
+      ...(plannedFinishAt !== undefined ? { plannedFinishAt: dateOrNull(plannedFinishAt) } : {}),
+      updatedAt: now,
+      updatedBy: actor.id,
+    };
     await tx.update(workOrders).set(values).where(and(eq(workOrders.id, id), eq(workOrders.status, order.status)));
     await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: id, eventType: "WORK_ORDER_UPDATED", note: input.notes || "Planning details updated", actorUserId: actor.id, createdAt: now });
     await tx.insert(auditLogs).values(audit(actor, meta, "WORK_ORDER_UPDATED", order, `Updated ${order.code}`, order, input));
@@ -149,6 +160,38 @@ export async function resumeWorkOrder(id: string, input: ResumeInput, actor: Act
     await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: id, eventType: "WORK_ORDER_RESUMED", fromStatus: "BACKLOG", toStatus: status, note: input.resolution, actorUserId: actor.id, createdAt: now });
     await tx.insert(auditLogs).values(audit(actor, meta, "WORK_ORDER_RESUMED", order, `Resumed ${order.code}`, { status: order.status }, { status, ...input }));
     return { id, status };
+  });
+}
+
+export async function backlogWorkOrderTask(id: string, input: TaskBacklogInput, actor: Actor, meta: RequestMeta) {
+  const now = new Date();
+  return db.transaction(async (tx) => {
+    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1))[0];
+    const task = (await tx.select().from(workOrderTasks).where(and(eq(workOrderTasks.id, input.taskId), eq(workOrderTasks.workOrderId, id))).limit(1))[0];
+    if (!order || !task) throw new HttpError(404, "Work order task not found", "TASK_NOT_FOUND");
+    const status = transitionTask(task.status, "BACKLOG", actor);
+    await tx.insert(workOrderBacklogEvents).values({ id: randomUUID(), workOrderId: id, taskId: task.id, scope: "JOB_STEP", reasonCode: input.reasonCode ?? null, reason: input.reason, category: input.category ?? null, expectedResumeAt: dateOrNull(input.expectedResumeAt), enteredBy: actor.id, enteredAt: now });
+    await tx.update(workOrderTasks).set({ status, updatedAt: now }).where(eq(workOrderTasks.id, task.id));
+    await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: id, eventType: "TASK_BACKLOGGED", note: `${task.title}: ${input.reason}`, actorUserId: actor.id, createdAt: now });
+    await tx.insert(auditLogs).values(audit(actor, meta, "TASK_BACKLOGGED", order, `Backlogged task ${task.title}`, { status: task.status }, input));
+    return { id: task.id, status };
+  });
+}
+
+export async function resumeWorkOrderTask(id: string, input: TaskResumeInput, actor: Actor, meta: RequestMeta) {
+  const now = new Date();
+  return db.transaction(async (tx) => {
+    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1))[0];
+    const task = (await tx.select().from(workOrderTasks).where(and(eq(workOrderTasks.id, input.taskId), eq(workOrderTasks.workOrderId, id))).limit(1))[0];
+    if (!order || !task) throw new HttpError(404, "Work order task not found", "TASK_NOT_FOUND");
+    const status = transitionTask(task.status, "OPEN", actor);
+    const backlog = (await tx.select().from(workOrderBacklogEvents).where(and(eq(workOrderBacklogEvents.workOrderId, id), eq(workOrderBacklogEvents.taskId, task.id), eq(workOrderBacklogEvents.scope, "JOB_STEP"))).orderBy(desc(workOrderBacklogEvents.enteredAt)).limit(1))[0];
+    if (!backlog || backlog.resumedAt) throw new HttpError(409, "No open task backlog event exists", "BACKLOG_NOT_OPEN");
+    await tx.update(workOrderBacklogEvents).set({ resumedBy: actor.id, resumedAt: now, resolution: input.resolution }).where(eq(workOrderBacklogEvents.id, backlog.id));
+    await tx.update(workOrderTasks).set({ status, updatedAt: now }).where(eq(workOrderTasks.id, task.id));
+    await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: id, eventType: "TASK_RESUMED", note: `${task.title}: ${input.resolution}`, actorUserId: actor.id, createdAt: now });
+    await tx.insert(auditLogs).values(audit(actor, meta, "TASK_RESUMED", order, `Resumed task ${task.title}`, { status: task.status }, { status, ...input }));
+    return { id: task.id, status };
   });
 }
 
