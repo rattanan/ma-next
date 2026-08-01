@@ -1,5 +1,27 @@
 @import "tailwindcss";
 
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--text-primary);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--text-primary);
+  --color-popover: var(--surface);
+  --color-popover-foreground: var(--text-primary);
+  --color-primary: var(--primary-700);
+  --color-primary-foreground: #ffffff;
+  --color-secondary: var(--primary-50);
+  --color-secondary-foreground: var(--primary-950);
+  --color-muted: var(--surface-secondary);
+  --color-muted-foreground: var(--text-muted);
+  --color-accent: var(--primary-50);
+  --color-accent-foreground: var(--primary-950);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: #ffffff;
+  --color-border: var(--border);
+  --color-input: var(--border);
+  --color-ring: var(--primary-600);
+}
+
 :root {
   --primary-950: #0b2a4a; --primary-900: #10385f; --primary-800: #104f9f;
   --primary-700: #1464d2; --primary-600: #2074dd; --primary-500: #2c83e8;
