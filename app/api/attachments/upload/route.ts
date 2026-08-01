@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { NextRequest } from "next/server";
 import { getRequestMeta, isSameOrigin } from "@/lib/auth/request";
-import { requirePermission } from "@/lib/auth/session";
+import { requireSession } from "@/lib/auth/session";
 import { registerAttachment } from "@/lib/attachments/service";
 import { apiError, HttpError } from "@/lib/http";
 
@@ -14,11 +14,13 @@ export async function POST(request: NextRequest) {
   const meta = getRequestMeta(request);
   try {
     if (!isSameOrigin(request)) throw new HttpError(403, "Invalid request origin", "CSRF_REJECTED");
-    const session = await requirePermission(request, "MANAGE_ATTACHMENTS");
     const form = await request.formData();
     const file = form.get("file");
     const entityType = String(form.get("entityType") ?? "");
     const entityId = String(form.get("entityId") ?? "");
+    const session = await requireSession(request);
+    const requiredPermission = entityType === "MAINTENANCE_NOTIFICATION_DRAFT" ? "CREATE_MAINTENANCE_NOTIFICATION" : entityType === "WORK_ORDER_BEFORE" || entityType === "WORK_ORDER_AFTER" ? "EXECUTE_WORK_ORDERS" : "MANAGE_ATTACHMENTS";
+    if (!session.user.permissions.includes(requiredPermission)) throw new HttpError(403, "You do not have permission to upload this attachment", "FORBIDDEN");
     if (!(file instanceof File) || !allowedTypes.has(file.type)) throw new HttpError(400, "A JPEG, PNG, or WebP image is required", "INVALID_PHOTO");
     if (!entityType.match(/^[A-Z0-9_]{2,80}$/) || !entityId || file.size > maximumBytes) throw new HttpError(400, "Invalid attachment metadata or file exceeds 5 MB", "INVALID_ATTACHMENT");
     const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";

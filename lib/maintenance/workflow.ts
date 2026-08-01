@@ -23,6 +23,20 @@ type TransitionContext = {
   completionOwnerId?: string | null;
 };
 
+export function initializeNotification(actor: WorkflowActor, data: { assetId?: string | null; title?: string | null; description?: string | null }): NotificationStatus {
+  requirePermission(actor, "CREATE_MAINTENANCE_NOTIFICATION");
+  if (!data.assetId || !data.title?.trim() || !data.description?.trim()) throw new WorkflowError("Asset, subject, and description are required", "MANDATORY_DATA_MISSING");
+  return "NEW";
+}
+
+export function convertNotificationToWorkOrder(current: NotificationStatus, actor: WorkflowActor, data: { assignedTo?: string | null; backlogReason?: string | null }): WorkOrderStatus {
+  requirePermission(actor, "MANAGE_WORK_ORDERS");
+  if (current !== "APPROVED" && current !== "BACKLOG") throw new WorkflowError(`Cannot convert a ${current.toLowerCase()} notification`);
+  if (!data.assignedTo) throw new WorkflowError("An assigned technician is required before conversion", "MANDATORY_DATA_MISSING");
+  if (current === "BACKLOG") requireNote(data.backlogReason, "backlog reason");
+  return current === "BACKLOG" ? "BACKLOG" : "OPEN";
+}
+
 const notificationTransitions: Record<NotificationStatus, Partial<Record<NotificationAction, NotificationStatus>>> = {
   NEW: { APPROVE: "APPROVED", BACKLOG: "BACKLOG", REJECT: "REJECTED" },
   APPROVED: {}, BACKLOG: {}, REJECTED: {}, COMPLETED: {},

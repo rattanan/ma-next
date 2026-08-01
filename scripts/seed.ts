@@ -1,8 +1,8 @@
 import { compare, hash } from "bcryptjs";
 import { randomBytes, randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import { db, pool } from "../lib/db";
-import { assetCategories, assetCustomFieldDefinitions, assetCustomFieldGroups, assetCustomFieldValues, assets, assetSpareParts, assetTypes, contracts, spareParts, users, type Role } from "../lib/db/schema";
+import { assetCategories, assetCustomFieldDefinitions, assetCustomFieldGroups, assetCustomFieldValues, assets, assetSpareParts, assetTypes, contracts, maintenanceNotifications, notificationReviews, spareParts, users, workOrderEvents, workOrders, workOrderTasks, type Role } from "../lib/db/schema";
 
 const definitions: Array<{ role: Role; name: string; username: string; emailKey: string; passwordKey: string; defaultEmail: string }> = [
   { role: "ADMIN", name: "System Administrator", username: "admin", emailKey: "SEED_ADMIN_EMAIL", passwordKey: "SEED_ADMIN_PASSWORD", defaultEmail: "admin@example.com" },
@@ -16,10 +16,10 @@ function temporaryPassword() {
 }
 
 async function main() {
-  const created: Array<{ role: Role; email: string; password: string }> = [];
+  const created: Array<{ role: Role; email: string }> = [];
   for (const definition of definitions) {
     const email = (process.env[definition.emailKey] || definition.defaultEmail).trim().toLowerCase();
-    const existing = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+    const existing = await db.select({ id: users.id }).from(users).where(or(eq(users.email, email), eq(users.username, definition.username))).limit(1);
     if (existing.length) continue;
     const supplied = process.env[definition.passwordKey];
     if (process.env.NODE_ENV === "production" && !supplied) throw new Error(`${definition.passwordKey} is required in production`);
@@ -28,7 +28,7 @@ async function main() {
     if (await compare(password, passwordHash) !== true) throw new Error("Password hashing verification failed");
     const now = new Date();
     await db.insert(users).values({ id: randomUUID(), fullName: definition.name, username: definition.username, email, passwordHash, role: definition.role, status: "ACTIVE", mustChangePassword: true, createdAt: now, updatedAt: now });
-    created.push({ role: definition.role, email, password });
+    created.push({ role: definition.role, email });
   }
   const admin = (await db.select({ id: users.id }).from(users).where(eq(users.role, "ADMIN")).limit(1))[0];
   if (!admin) throw new Error("An administrator is required to seed maintenance masters");
@@ -54,11 +54,23 @@ async function main() {
     await db.insert(spareParts).values({ id: partId, code: "BRG-6312-C3", name: "Drive-end bearing", unit: "EA", availableQuantity: "2" });
     await db.insert(assetSpareParts).values({ id: randomUUID(), sequence: 10, assetId: equipmentId, sparePartId: partId, requiredQuantity: "1", enabled: true, note: "Critical insurance spare" });
   }
-  if (!created.length) console.log("User seed skipped: all four role users already exist.");
-  else {
-    console.log("Created seed users. Temporary passwords are shown once; store them securely:");
-    for (const item of created) console.log(`${item.role}: ${item.email} / ${item.password}`);
+  if (process.env.NODE_ENV !== "production" && !(await db.select({ id: maintenanceNotifications.id }).from(maintenanceNotifications).where(eq(maintenanceNotifications.code, "NO-DEMO-001")).limit(1)).length) {
+    const demoAsset = (await db.select({ id: assets.id }).from(assets).where(eq(assets.code, "10MKA10AP001")).limit(1))[0];
+    const technician = (await db.select({ id: users.id }).from(users).where(eq(users.role, "DATA_SOURCE_CREATOR")).limit(1))[0];
+    if (demoAsset && technician) {
+      const notificationId = randomUUID(); const orderId = randomUUID(); const dueAt = new Date(now.getTime() + 2 * 86400000);
+      await db.insert(maintenanceNotifications).values({ id: notificationId, code: "NO-DEMO-001", assetId: demoAsset.id, title: "Mechanical seal leakage", description: "Visible leakage at the pump drive-end seal while equipment remains available at reduced capacity.", type: "CORRECTIVE", priority: "HIGH", severity: "MAJOR", equipmentOperatingStatus: "DEGRADED", status: "APPROVED", breakdown: false, requestedBy: admin.id, assignedPersonId: technician.id, supervisorId: admin.id, dueAt, reviewedAt: now, photoAttachmentIds: "[]", createdAt: now, updatedAt: now, createdBy: admin.id, updatedBy: admin.id });
+      await db.insert(notificationReviews).values({ id: randomUUID(), notificationId, decision: "APPROVED", note: "Approved demo corrective repair", reviewedBy: admin.id, reviewedAt: now });
+      await db.insert(workOrders).values({ id: orderId, code: "WO-DEMO-001", notificationId, assetId: demoAsset.id, title: "Replace mechanical seal", description: "Isolate pump, replace the leaking seal, align and operationally test.", priority: "HIGH", severity: "MAJOR", status: "OPEN", assignedTo: technician.id, supervisorId: admin.id, dueAt, createdAt: now, updatedAt: now, createdBy: admin.id, updatedBy: admin.id });
+      await db.insert(workOrderTasks).values([
+        { id: randomUUID(), workOrderId: orderId, sequence: 10, title: "Isolate and replace mechanical seal", description: "Apply LOTO and follow the approved maintenance procedure.", required: true, kind: "JOB_STEP", status: "OPEN", assignedTo: technician.id, createdAt: now, updatedAt: now },
+        { id: randomUUID(), workOrderId: orderId, sequence: 20, title: "Verify guards and leak-free operation", description: "Complete after operational test.", required: true, kind: "CHECKLIST", status: "OPEN", assignedTo: technician.id, createdAt: now, updatedAt: now },
+      ]);
+      await db.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: orderId, eventType: "WORK_ORDER_CREATED", toStatus: "OPEN", note: "Seeded approved corrective notification and work order", actorUserId: admin.id, createdAt: now });
+    }
   }
+  if (!created.length) console.log("User seed skipped: all four role users already exist.");
+  else console.log(`Created ${created.length} seed user(s): ${created.map((item) => `${item.role} <${item.email}>`).join(", ")}. Reset temporary credentials through the approved admin workflow.`);
 }
 
 main().catch((error) => {

@@ -15,6 +15,7 @@
     "db:validate": "prisma validate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
+    "db:deploy:compatible": "tsx scripts/migrate-compatible.ts",
     "db:seed": "prisma db seed"
   },
   "dependencies": {

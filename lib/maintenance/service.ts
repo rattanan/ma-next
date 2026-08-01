@@ -5,14 +5,15 @@ import { prisma } from "../prisma";
 import {
   assetCategories, assets, assetTypes, auditLogs, maintenanceNotifications, notificationReviews, spareParts, users,
   workExecutionEntries, workOrderCompletions, workOrderEvents, workOrderSpareParts, workOrderTasks, workOrderVerifications, workOrders,
-  type NotificationDecision, type WorkOrderStatus,
+  type WorkOrderStatus,
 } from "../db/schema";
 import { HttpError } from "../http";
 import { maskSensitive } from "../auth/mask";
 import type { AuthenticatedUser } from "../auth/session";
 import type { RequestMeta } from "../auth/request";
 import { createNotification as createInAppNotification } from "../notifications/service";
-import { completeNotification, transitionNotification, transitionTask, transitionWorkOrder, verificationAction } from "./workflow";
+import { logger } from "../logger";
+import { completeNotification, convertNotificationToWorkOrder, initializeNotification, transitionNotification, transitionTask, transitionWorkOrder, verificationAction } from "./workflow";
 import type { z } from "zod";
 import type { assetSchema, closeSchema, completionSchema, executionEntrySchema, notificationReviewSchema, notificationSchema, sparePartUsageSchema, taskSchema, taskStatusSchema, verificationSchema } from "./validation";
 
@@ -84,15 +85,19 @@ export async function createAsset(input: AssetInput, actor: Actor, meta: Request
 
 export async function createNotification(input: NotificationInput, actor: Actor, meta: RequestMeta) {
   const id = randomUUID(); const code = nowCode("NO"); const now = new Date();
+  const initialStatus = initializeNotification(actor, input);
+  let duplicateWarning: string | null = null;
   await db.transaction(async (tx) => {
     const asset = (await tx.select({ id: assets.id, status: assets.status }).from(assets).where(eq(assets.id, input.assetId)).limit(1))[0];
     if (!asset || asset.status !== "ACTIVE") throw new HttpError(400, "Notification requires an active asset", "INVALID_ASSET");
-    await tx.insert(maintenanceNotifications).values({ id, code, assetId: input.assetId, title: input.title, description: input.description, type: input.type, priority: input.priority, severity: input.severity, equipmentOperatingStatus: input.equipmentOperatingStatus, breakdown: input.breakdown, status: "NEW", requestedBy: actor.id, departmentId: input.departmentId ?? null, assignedPersonId: input.assignedPersonId ?? null, supervisorId: input.supervisorId ?? null, photoAttachmentIds: JSON.stringify(input.photoAttachmentIds), dueAt: dateOrNull(input.dueAt), createdAt: now, updatedAt: now, createdBy: actor.id, updatedBy: actor.id });
+    const duplicate = (await tx.select({ code: maintenanceNotifications.code }).from(maintenanceNotifications).where(and(eq(maintenanceNotifications.assetId, input.assetId), eq(maintenanceNotifications.status, "NEW"))).limit(1))[0];
+    if (duplicate) duplicateWarning = `${duplicate.code} is already new for this asset; verify this is not a duplicate.`;
+    await tx.insert(maintenanceNotifications).values({ id, code, assetId: input.assetId, title: input.title, description: input.description, type: input.type, priority: input.priority, severity: input.severity, equipmentOperatingStatus: input.equipmentOperatingStatus, breakdown: input.breakdown, status: initialStatus, requestedBy: actor.id, departmentId: input.departmentId ?? null, assignedPersonId: input.assignedPersonId ?? null, supervisorId: input.supervisorId ?? null, photoAttachmentIds: JSON.stringify(input.photoAttachmentIds), dueAt: dateOrNull(input.dueAt), createdAt: now, updatedAt: now, createdBy: actor.id, updatedBy: actor.id });
     await tx.insert(auditLogs).values(auditRow({ actor, action: "MAINTENANCE_NOTIFICATION_CREATED", category: "MAINTENANCE", targetType: "MAINTENANCE_NOTIFICATION", targetId: id, targetName: code, description: `Reported ${code}`, newValues: input, meta, createdAt: now }));
   });
   const recipients = [...new Set([input.supervisorId, input.assignedPersonId].filter((value): value is string => Boolean(value)))];
-  if (recipients.length) await createInAppNotification({ type: "MAINTENANCE_NOTIFICATION_CREATED", title: `New maintenance notification ${code}`, message: `${actor.fullName} reported ${input.title}`, actionUrl: "/maintenance", sourceType: "MAINTENANCE_NOTIFICATION", sourceId: id, recipientIds: recipients }, actor, meta);
-  return { id, code };
+  if (recipients.length) await createInAppNotification({ type: "MAINTENANCE_NOTIFICATION_CREATED", title: `New maintenance notification ${code}`, message: `${actor.fullName} reported ${input.title}`, actionUrl: "/maintenance", sourceType: "MAINTENANCE_NOTIFICATION", sourceId: id, recipientIds: recipients }, actor, meta).catch((error) => logger.error("Maintenance notification delivery failed", { sourceId: id, error: error instanceof Error ? error.message : "Unknown error" }));
+  return { id, code, duplicateWarning };
 }
 
 export async function reviewMaintenanceNotification(id: string, input: ReviewInput, actor: Actor, meta: RequestMeta) {
@@ -106,7 +111,7 @@ export async function reviewMaintenanceNotification(id: string, input: ReviewInp
     await tx.update(maintenanceNotifications).set({ status: next, reviewedAt: now, updatedAt: now, updatedBy: actor.id }).where(and(eq(maintenanceNotifications.id, id), eq(maintenanceNotifications.status, "NEW")));
     let workOrder: { id: string; code: string } | null = null;
     if (input.decision === "APPROVED" || input.decision === "BACKLOG") {
-      const orderId = randomUUID(); const code = nowCode("WO"); const orderStatus: WorkOrderStatus = input.decision === "BACKLOG" ? "BACKLOG" : "OPEN";
+      const orderId = randomUUID(); const code = nowCode("WO"); const orderStatus: WorkOrderStatus = convertNotificationToWorkOrder(next, actor, { assignedTo: input.assignedTo, backlogReason: input.backlogReason });
       await tx.insert(workOrders).values({ id: orderId, code, notificationId: id, assetId: notification.assetId, title: notification.title, description: notification.description, priority: notification.priority, severity: notification.severity, departmentId: notification.departmentId, backlogReason: input.decision === "BACKLOG" ? input.backlogReason : null, status: orderStatus, assignedTo: input.assignedTo ?? null, supervisorId: notification.supervisorId, dueAt: dateOrNull(input.dueAt) ?? notification.dueAt, createdAt: now, updatedAt: now, createdBy: actor.id, updatedBy: actor.id });
       await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: orderId, eventType: "WORK_ORDER_CREATED", toStatus: orderStatus, note: input.note, actorUserId: actor.id, createdAt: now });
       workOrder = { id: orderId, code };
@@ -114,7 +119,7 @@ export async function reviewMaintenanceNotification(id: string, input: ReviewInp
     await tx.insert(auditLogs).values(auditRow({ actor, action: "MAINTENANCE_NOTIFICATION_REVIEWED", category: "MAINTENANCE", targetType: "MAINTENANCE_NOTIFICATION", targetId: id, targetName: notification.code, description: `${notification.code} reviewed as ${input.decision}`, previousValues: { status: notification.status }, newValues: { status: next, workOrder }, meta, createdAt: now }));
     return { notificationId: id, status: next, workOrder };
   });
-  if (input.assignedTo && result.workOrder) await createInAppNotification({ type: "WORK_ORDER_ASSIGNED", title: `Work order ${result.workOrder.code} assigned`, message: `Corrective work is ready for execution`, actionUrl: "/maintenance", sourceType: "WORK_ORDER", sourceId: result.workOrder.id, recipientIds: [input.assignedTo] }, actor, meta);
+  if (input.assignedTo && result.workOrder) await createInAppNotification({ type: "WORK_ORDER_ASSIGNED", title: `Work order ${result.workOrder.code} assigned`, message: "Corrective work is ready for execution", actionUrl: "/maintenance", sourceType: "WORK_ORDER", sourceId: result.workOrder.id, recipientIds: [input.assignedTo] }, actor, meta).catch((error) => logger.error("Work-order assignment notification failed", { sourceId: result.workOrder?.id, error: error instanceof Error ? error.message : "Unknown error" }));
   return result;
 }
 
@@ -160,7 +165,7 @@ export async function updateWorkOrderTask(id: string, taskId: string, input: Tas
     await tx.update(workOrderTasks).set({ status: taskStatus, completedBy: taskStatus === "COMPLETED" ? actor.id : null, completedAt: taskStatus === "COMPLETED" ? now : null, updatedAt: now }).where(eq(workOrderTasks.id, taskId));
     await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: id, eventType: "TASK_STATUS_CHANGED", note: `${task.title}: ${input.status}`, actorUserId: actor.id, createdAt: now });
     await tx.insert(auditLogs).values(auditRow({ actor, action: "WORK_ORDER_TASK_UPDATED", category: "MAINTENANCE", targetType: "WORK_ORDER_TASK", targetId: taskId, targetName: task.title, description: `Set task to ${input.status}`, previousValues: { status: task.status }, newValues: input, meta, createdAt: now }));
-    return { id: taskId, status: input.status };
+    return { id: taskId, status: taskStatus };
   });
 }
 
@@ -223,8 +228,11 @@ export async function closeWorkOrder(id: string, input: CloseInput, actor: Actor
   const now = new Date();
   return db.transaction(async (tx) => {
     const order = await orderForMutation(tx, id); const status = transitionWorkOrder(order.status, "CLOSE", { actor, note: input.note });
+    const notification = (await tx.select({ status: maintenanceNotifications.status }).from(maintenanceNotifications).where(eq(maintenanceNotifications.id, order.notificationId)).limit(1))[0];
+    if (!notification) throw new HttpError(404, "Source notification not found", "NOTIFICATION_NOT_FOUND");
+    const notificationStatus = completeNotification(notification.status, actor);
     await tx.update(workOrders).set({ status, closedAt: now, updatedAt: now, updatedBy: actor.id }).where(eq(workOrders.id, id));
-    await tx.update(maintenanceNotifications).set({ status: "COMPLETED", completedAt: now, updatedAt: now, updatedBy: actor.id }).where(eq(maintenanceNotifications.id, order.notificationId));
+    await tx.update(maintenanceNotifications).set({ status: notificationStatus, completedAt: now, updatedAt: now, updatedBy: actor.id }).where(eq(maintenanceNotifications.id, order.notificationId));
     await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: id, eventType: "WORK_ORDER_CLOSED", fromStatus: order.status, toStatus: status, note: input.note, actorUserId: actor.id, createdAt: now });
     await tx.insert(auditLogs).values(auditRow({ actor, action: "WORK_ORDER_CLOSED", category: "MAINTENANCE", targetType: "WORK_ORDER", targetId: id, targetName: order.code, description: `Closed ${order.code}`, previousValues: { status: order.status }, newValues: { status, note: input.note }, meta, createdAt: now }));
     return { id, status };

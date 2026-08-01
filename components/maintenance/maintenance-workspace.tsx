@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import Image from "next/image";
 import { BellRing, Boxes, ClipboardCheck, Plus, Wrench } from "lucide-react";
 import { PageContainer, PageHeader } from "@/components/shared/page-header";
 import { Alert } from "@/components/ui/alert";
@@ -45,7 +46,7 @@ const dangerValues = new Set(["CRITICAL", "REJECTED", "CANCELLED", "OVERDUE"]);
 const warningValues = new Set(["HIGH", "BACKLOG", "COMPLETION_PENDING", "RETURNED", "ON_HOLD"]);
 const successValues = new Set(["ACTIVE", "COMPLETED", "VERIFIED", "CLOSED", "APPROVED"]);
 function StatusPill({ value }: { value: string }) { return <Badge className={cn("whitespace-nowrap", dangerValues.has(value) && "border-red-200 bg-red-50 text-red-900", warningValues.has(value) && "border-amber-200 bg-amber-50 text-amber-900", successValues.has(value) && "border-emerald-200 bg-emerald-50 text-emerald-900")}>{label(value)}</Badge>; }
-function PhotoStrip({ title, ids }: { title: string; ids: string[] }) { if (ids.length === 0) return null; return <div><h4 className="mb-2 text-sm font-bold text-slate-700">{title}</h4><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{ids.map((id) => <a key={id} href={`/api/attachments/${id}/content`} target="_blank" rel="noreferrer" className="overflow-hidden rounded-lg border border-slate-200"><img src={`/api/attachments/${id}/content`} alt={`${title} evidence`} className="aspect-square w-full object-cover" /></a>)}</div></div>; }
+function PhotoStrip({ title, ids }: { title: string; ids: string[] }) { if (ids.length === 0) return null; return <div><h4 className="mb-2 text-sm font-bold text-slate-700">{title}</h4><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{ids.map((id) => <a key={id} href={`/api/attachments/${id}/content`} target="_blank" rel="noreferrer" className="overflow-hidden rounded-lg border border-slate-200"><Image unoptimized width={240} height={240} src={`/api/attachments/${id}/content`} alt={`${title} evidence`} className="aspect-square w-full object-cover" /></a>)}</div></div>; }
 
 function Field({ label: fieldLabel, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return <label className="maintenance-field"><span>{fieldLabel}</span>{children}{hint && <small>{hint}</small>}</label>;
