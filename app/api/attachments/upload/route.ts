@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     const entityType = String(form.get("entityType") ?? "");
     const entityId = String(form.get("entityId") ?? "");
     const session = await requireSession(request);
-    const requiredPermission = entityType === "MAINTENANCE_NOTIFICATION_DRAFT" ? "CREATE_MAINTENANCE_NOTIFICATION" : entityType === "WORK_ORDER_BEFORE" || entityType === "WORK_ORDER_AFTER" ? "EXECUTE_WORK_ORDERS" : entityType === "ASSET" ? "ASSET_UPDATE" : "MANAGE_ATTACHMENTS";
+    const requiredPermission = entityType === "MAINTENANCE_NOTIFICATION_DRAFT" ? "NOTIFICATION_CREATE" : entityType === "WORK_ORDER_BEFORE" || entityType === "WORK_ORDER_AFTER" ? "EXECUTE_WORK_ORDERS" : entityType === "ASSET" ? "ASSET_UPDATE" : "MANAGE_ATTACHMENTS";
     if (!session.user.permissions.includes(requiredPermission) && !(entityType === "ASSET" && session.user.permissions.includes("MANAGE_ATTACHMENTS"))) throw new HttpError(403, "You do not have permission to upload this attachment", "FORBIDDEN");
     if (!(file instanceof File) || !allowedTypes.has(file.type)) throw new HttpError(400, "Unsupported file type. Upload an image, PDF, text, ZIP, Word, or Excel file", "INVALID_FILE_TYPE");
     if (!entityType.match(/^[A-Z0-9_]{2,80}$/) || !entityId || file.size > maximumBytes) throw new HttpError(400, "Invalid attachment metadata or file exceeds 5 MB", "INVALID_ATTACHMENT");

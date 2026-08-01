@@ -6,7 +6,7 @@ import type { RequestMeta } from "../auth/request";
 import { maskSensitive } from "../auth/mask";
 import { db } from "../db";
 import {
-  approvalHistory, approvalTasks, assets, auditLogs, maintenanceNotifications, notificationEvents, notificationReviews, workOrderAssignments,
+  approvalHistory, approvalTasks, assets, attachments, auditLogs, maintenanceNotifications, notificationEvents, notificationReviews, workOrderAssignments,
   workOrderCompletions, workOrderEvents, workOrderOperatorDecisions, workOrderRechecks,
   workOrderTasks, workOrders,
 } from "../db/schema";
@@ -78,7 +78,14 @@ export async function createGovernedNotification(input: NotificationInput, actor
   await db.transaction(async (tx) => {
     const asset = (await tx.select({ id: assets.id, status: assets.status }).from(assets).where(eq(assets.id, input.assetId)).limit(1))[0];
     if (!asset || asset.status !== "ACTIVE") throw new HttpError(400, "An active asset is required", "INVALID_ASSET");
+    const photoIds = [...new Set(input.photoAttachmentIds)];
+    if (photoIds.length !== input.photoAttachmentIds.length) throw new HttpError(400, "Duplicate photo attachments are not allowed", "INVALID_ATTACHMENT");
+    if (photoIds.length) {
+      const uploadedPhotos = await tx.select({ id: attachments.id }).from(attachments).where(and(inArray(attachments.id, photoIds), eq(attachments.entityType, "MAINTENANCE_NOTIFICATION_DRAFT"), eq(attachments.uploadedBy, actor.id), isNull(attachments.deletedAt)));
+      if (uploadedPhotos.length !== photoIds.length) throw new HttpError(400, "One or more notification photos are invalid", "INVALID_ATTACHMENT");
+    }
     await tx.insert(maintenanceNotifications).values({ id, code: number, organizationId, siteId: input.siteId ?? null, assetId: input.assetId, title: input.title, description: input.description, symptoms: input.symptoms || null, problemCategory: input.problemCategory || null, operationalImpact: input.operationalImpact || null, safetyImpact: input.safetyImpact || null, productionImpact: input.productionImpact || null, incidentAt: dateOrNull(input.incidentAt), responsibleGroup: input.responsibleGroup || null, remarks: input.remarks || null, requestedUrgency: input.requestedUrgency || null, contactPerson: input.contactPerson || null, contactPhone: input.contactPhone || null, type: input.type, priority: input.priority, severity: input.severity, equipmentOperatingStatus: input.equipmentOperatingStatus, breakdown: input.breakdown, status: "DRAFT", requestedBy: actor.id, departmentId: input.departmentId ?? null, photoAttachmentIds: json(input.photoAttachmentIds), dueAt: dateOrNull(input.dueAt), createdAt: now, updatedAt: now, createdBy: actor.id, updatedBy: actor.id });
+    if (photoIds.length) await tx.update(attachments).set({ entityType: "MAINTENANCE_NOTIFICATION", entityId: id }).where(inArray(attachments.id, photoIds));
     await tx.insert(notificationEvents).values(notificationEvent(id, "NOTIFICATION_CREATED", actor, now, undefined, "DRAFT"));
     await tx.insert(auditLogs).values(audit(actor, meta, organizationId, "NOTIFICATION_CREATED", "MAINTENANCE_NOTIFICATION", id, number, {}, input, now));
   });
