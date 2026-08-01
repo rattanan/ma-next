@@ -21,6 +21,26 @@ export const assetArchiveSchema = z.object({
   reason: z.string().trim().min(3).max(1000),
 }).strict();
 
+const relationFields = {
+  sequence: z.coerce.number().int().min(0).max(999999),
+  enabled: z.boolean().default(true),
+  note: z.string().trim().max(2000).nullable().optional(),
+};
+
+export const assetHierarchyLinkSchema = z.object({
+  ...relationFields,
+  assetId: z.string().uuid(),
+  quantity: z.coerce.number().positive().max(9999999999),
+}).strict();
+
+export const assetSparePartLinkSchema = z.object({
+  ...relationFields,
+  sparePartId: z.string().uuid(),
+  requiredQuantity: z.coerce.number().positive().max(9999999999),
+}).strict();
+
+export const assetRelationDeleteSchema = z.object({ linkId: z.string().uuid() }).strict();
+
 export function normalizeLegacyAssetStatus(status: string) {
   const normalized = status.trim().toUpperCase().replaceAll(" ", "_");
   if (assetStatusValues.includes(normalized as (typeof assetStatusValues)[number])) return normalized as (typeof assetStatusValues)[number];
