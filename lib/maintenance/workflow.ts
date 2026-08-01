@@ -1,19 +1,34 @@
+import type { Permission } from "../auth/permissions";
 import type { NotificationDecision, NotificationStatus, VerificationDecision, WorkOrderStatus, WorkTaskStatus } from "../db/schema";
+import { HttpError } from "../http";
 
-export class WorkflowError extends Error {
-  constructor(message: string, public code = "INVALID_TRANSITION") {
-    super(message);
+export class WorkflowError extends HttpError {
+  constructor(message: string, code = "INVALID_TRANSITION") {
+    super(code === "WORKFLOW_FORBIDDEN" ? 403 : 409, message, code);
   }
 }
 
-export function reviewNotification(current: NotificationStatus, decision: NotificationDecision): NotificationStatus {
-  if (current !== "NEW") throw new WorkflowError("Only new notifications can be reviewed");
-  return decision;
-}
-
+export type NotificationAction = "APPROVE" | "BACKLOG" | "REJECT";
 export type WorkOrderAction = "START" | "SUBMIT_COMPLETION" | "VERIFY" | "RETURN" | "CLOSE";
 
-const transitions: Record<WorkOrderStatus, Partial<Record<WorkOrderAction, WorkOrderStatus>>> = {
+type WorkflowActor = { id: string; permissions: readonly Permission[] };
+type TransitionContext = {
+  actor: WorkflowActor;
+  assignedTo?: string | null;
+  supervisorId?: string | null;
+  note?: string | null;
+  backlogReason?: string | null;
+  requiredTasks?: ReadonlyArray<{ required: boolean; status: WorkTaskStatus }>;
+  completionExists?: boolean;
+  completionOwnerId?: string | null;
+};
+
+const notificationTransitions: Record<NotificationStatus, Partial<Record<NotificationAction, NotificationStatus>>> = {
+  NEW: { APPROVE: "APPROVED", BACKLOG: "BACKLOG", REJECT: "REJECTED" },
+  APPROVED: {}, BACKLOG: {}, REJECTED: {}, COMPLETED: {},
+};
+
+const workOrderTransitions: Record<WorkOrderStatus, Partial<Record<WorkOrderAction, WorkOrderStatus>>> = {
   OPEN: { START: "IN_PROGRESS" },
   BACKLOG: { START: "IN_PROGRESS" },
   IN_PROGRESS: { SUBMIT_COMPLETION: "COMPLETION_PENDING" },
@@ -22,14 +37,73 @@ const transitions: Record<WorkOrderStatus, Partial<Record<WorkOrderAction, WorkO
   CLOSED: {},
 };
 
-export function transitionWorkOrder(current: WorkOrderStatus, action: WorkOrderAction): WorkOrderStatus {
-  const next = transitions[current][action];
-  if (!next) throw new WorkflowError(`Cannot ${action.toLowerCase().replaceAll("_", " ")} a ${current.toLowerCase().replaceAll("_", " ")} work order`);
+const workOrderPermissions: Record<WorkOrderAction, Permission> = {
+  START: "EXECUTE_WORK_ORDERS",
+  SUBMIT_COMPLETION: "EXECUTE_WORK_ORDERS",
+  VERIFY: "VERIFY_WORK_ORDERS",
+  RETURN: "VERIFY_WORK_ORDERS",
+  CLOSE: "CLOSE_WORK_ORDERS",
+};
+
+function requirePermission(actor: WorkflowActor, permission: Permission) {
+  if (!actor.permissions.includes(permission)) throw new WorkflowError(`Missing permission: ${permission}`, "WORKFLOW_FORBIDDEN");
+}
+
+function requireNote(note?: string | null, field = "note") {
+  if (!note?.trim()) throw new WorkflowError(`${field} is required`, "MANDATORY_DATA_MISSING");
+}
+
+export function transitionNotification(current: NotificationStatus, action: NotificationAction, context: TransitionContext): NotificationStatus {
+  requirePermission(context.actor, "REVIEW_MAINTENANCE_NOTIFICATION");
+  const next = notificationTransitions[current][action];
+  if (!next) throw new WorkflowError(`Cannot ${action.toLowerCase()} a ${current.toLowerCase()} notification`);
+  requireNote(context.note, action === "REJECT" ? "rejection reason" : "review note");
+  if (action === "APPROVE" && !context.assignedTo) throw new WorkflowError("An assigned technician is required before approval", "MANDATORY_DATA_MISSING");
+  if (action === "BACKLOG") {
+    if (!context.assignedTo) throw new WorkflowError("An assigned technician is required for backlog work", "MANDATORY_DATA_MISSING");
+    requireNote(context.backlogReason, "backlog reason");
+  }
   return next;
+}
+
+export function transitionWorkOrder(current: WorkOrderStatus, action: WorkOrderAction, context?: TransitionContext): WorkOrderStatus {
+  const next = workOrderTransitions[current][action];
+  if (!next) throw new WorkflowError(`Cannot ${action.toLowerCase().replaceAll("_", " ")} a ${current.toLowerCase().replaceAll("_", " ")} work order`);
+  if (!context) return next; // Pure state-table compatibility for callers that do not execute a command.
+  requirePermission(context.actor, workOrderPermissions[action]);
+  if (action === "START" && !context.assignedTo) throw new WorkflowError("An assigned technician is required before work starts", "MANDATORY_DATA_MISSING");
+  if (action === "SUBMIT_COMPLETION") {
+    if (!completionReady(context.requiredTasks ?? [])) throw new WorkflowError("Complete every required task before submitting completion", "REQUIRED_TASKS_INCOMPLETE");
+  }
+  if (action === "VERIFY" || action === "RETURN") {
+    if (!context.completionExists) throw new WorkflowError("A valid completion record is required", "COMPLETION_NOT_FOUND");
+    requireNote(context.note, "verification note");
+    if (context.completionOwnerId === context.actor.id) throw new WorkflowError("The technician who completed the work cannot verify it", "SEGREGATION_OF_DUTIES");
+  }
+  if (action === "CLOSE") requireNote(context.note, "closure note");
+  return next;
+}
+
+export function reviewNotification(current: NotificationStatus, decision: NotificationDecision): NotificationStatus {
+  if (current !== "NEW") throw new WorkflowError("Only new notifications can be reviewed");
+  return decision;
 }
 
 export function completionReady(tasks: ReadonlyArray<{ required: boolean; status: WorkTaskStatus }>) {
   return tasks.every((task) => !task.required || task.status === "COMPLETED");
+}
+
+export function transitionTask(current: WorkTaskStatus, next: WorkTaskStatus, actor: WorkflowActor) {
+  requirePermission(actor, "EXECUTE_WORK_ORDERS");
+  const allowed: Record<WorkTaskStatus, readonly WorkTaskStatus[]> = { OPEN: ["IN_PROGRESS", "COMPLETED"], IN_PROGRESS: ["OPEN", "COMPLETED"], COMPLETED: ["OPEN"] };
+  if (!allowed[current].includes(next)) throw new WorkflowError(`Cannot move a ${current.toLowerCase()} task to ${next.toLowerCase()}`);
+  return next;
+}
+
+export function completeNotification(current: NotificationStatus, actor: WorkflowActor): NotificationStatus {
+  requirePermission(actor, "CLOSE_WORK_ORDERS");
+  if (current !== "APPROVED" && current !== "BACKLOG") throw new WorkflowError(`Cannot complete a ${current.toLowerCase()} notification`);
+  return "COMPLETED";
 }
 
 export function verificationAction(decision: VerificationDecision): WorkOrderAction {

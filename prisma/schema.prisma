@@ -79,6 +79,18 @@ enum MaintenancePriority {
   HIGH
   CRITICAL
 }
+enum MaintenanceSeverity {
+  MINOR
+  MODERATE
+  MAJOR
+  CRITICAL
+}
+enum EquipmentOperatingStatus {
+  RUNNING
+  STOPPED
+  DEGRADED
+  UNKNOWN
+}
 enum MaintenanceNotificationType {
   CORRECTIVE
   BREAKDOWN
@@ -108,6 +120,10 @@ enum WorkTaskStatus {
   OPEN
   IN_PROGRESS
   COMPLETED
+}
+enum WorkTaskKind {
+  JOB_STEP
+  CHECKLIST
 }
 enum VerificationDecision {
   VERIFIED
@@ -580,10 +596,15 @@ model MaintenanceNotification {
   description String @db.Text
   type MaintenanceNotificationType @default(CORRECTIVE)
   priority MaintenancePriority @default(MEDIUM)
+  severity MaintenanceSeverity @default(MODERATE)
+  equipmentOperatingStatus EquipmentOperatingStatus @default(UNKNOWN) @map("equipment_operating_status")
   status MaintenanceNotificationStatus @default(NEW)
   breakdown Boolean @default(false)
   requestedBy String @map("requested_by") @db.VarChar(36)
+  departmentId String? @map("department_id") @db.VarChar(36)
+  assignedPersonId String? @map("assigned_person_id") @db.VarChar(36)
   supervisorId String? @map("supervisor_id") @db.VarChar(36)
+  photoAttachmentIds String? @map("photo_attachment_ids") @db.LongText
   dueAt DateTime? @map("due_at") @db.DateTime(3)
   reviewedAt DateTime? @map("reviewed_at") @db.DateTime(3)
   completedAt DateTime? @map("completed_at") @db.DateTime(3)
@@ -614,7 +635,10 @@ model WorkOrder {
   title String @db.VarChar(190)
   description String @db.Text
   priority MaintenancePriority @default(MEDIUM)
+  severity MaintenanceSeverity @default(MODERATE)
   status WorkOrderStatus @default(OPEN)
+  departmentId String? @map("department_id") @db.VarChar(36)
+  backlogReason String? @map("backlog_reason") @db.Text
   assignedTo String? @map("assigned_to") @db.VarChar(36)
   supervisorId String? @map("supervisor_id") @db.VarChar(36)
   dueAt DateTime? @map("due_at") @db.DateTime(3)
@@ -638,6 +662,7 @@ model WorkOrderTask {
   title String @db.VarChar(190)
   description String? @db.Text
   required Boolean @default(true)
+  kind WorkTaskKind @default(JOB_STEP)
   status WorkTaskStatus @default(OPEN)
   assignedTo String? @map("assigned_to") @db.VarChar(36)
   completedBy String? @map("completed_by") @db.VarChar(36)
@@ -654,6 +679,8 @@ model WorkExecutionEntry {
   workOrderId String @map("work_order_id") @db.VarChar(36)
   description String @db.Text
   minutesSpent Int @map("minutes_spent")
+  overtimeMinutes Int @default(0) @map("overtime_minutes")
+  overtimeMultiplier Decimal @default(1) @map("overtime_multiplier") @db.Decimal(4, 2)
   actionAt DateTime @map("action_at") @db.DateTime(3)
   actorUserId String @map("actor_user_id") @db.VarChar(36)
   createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
@@ -671,11 +698,25 @@ model WorkOrderCompletion {
   escalation String? @db.Text
   notes String? @db.Text
   durationMinutes Int @map("duration_minutes")
+  beforePhotoAttachmentIds String? @map("before_photo_attachment_ids") @db.LongText
+  afterPhotoAttachmentIds String? @map("after_photo_attachment_ids") @db.LongText
   completedBy String @map("completed_by") @db.VarChar(36)
   completedAt DateTime @map("completed_at") @db.DateTime(3)
   createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
   @@index([workOrderId, completedAt])
   @@map("work_order_completions")
+}
+
+model WorkOrderSparePart {
+  id String @id @default(uuid()) @db.VarChar(36)
+  workOrderId String @map("work_order_id") @db.VarChar(36)
+  sparePartId String @map("spare_part_id") @db.VarChar(36)
+  quantity Decimal @db.Decimal(14, 4)
+  note String? @db.Text
+  usedBy String @map("used_by") @db.VarChar(36)
+  usedAt DateTime @map("used_at") @db.DateTime(3)
+  @@index([workOrderId, usedAt])
+  @@map("work_order_spare_parts")
 }
 
 model WorkOrderVerification {

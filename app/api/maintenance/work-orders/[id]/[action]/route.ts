@@ -4,10 +4,10 @@ import { getRequestMeta, isSameOrigin } from "@/lib/auth/request";
 import { requirePermission } from "@/lib/auth/session";
 import type { Permission } from "@/lib/auth/permissions";
 import { apiError, HttpError } from "@/lib/http";
-import { addExecutionEntry, addWorkOrderTask, closeWorkOrder, startWorkOrder, submitCompletion, updateWorkOrderTask, verifyCompletion } from "@/lib/maintenance/service";
-import { closeSchema, completionSchema, executionEntrySchema, taskSchema, taskStatusSchema, verificationSchema } from "@/lib/maintenance/validation";
+import { addExecutionEntry, addUsedSparePart, addWorkOrderTask, closeWorkOrder, startWorkOrder, submitCompletion, updateWorkOrderTask, verifyCompletion } from "@/lib/maintenance/service";
+import { closeSchema, completionSchema, executionEntrySchema, sparePartUsageSchema, taskSchema, taskStatusSchema, verificationSchema } from "@/lib/maintenance/validation";
 
-const permissions: Record<string, Permission> = { start: "EXECUTE_WORK_ORDERS", tasks: "MANAGE_WORK_ORDERS", "task-status": "EXECUTE_WORK_ORDERS", execution: "EXECUTE_WORK_ORDERS", completion: "EXECUTE_WORK_ORDERS", verification: "VERIFY_WORK_ORDERS", close: "CLOSE_WORK_ORDERS" };
+const permissions: Record<string, Permission> = { start: "EXECUTE_WORK_ORDERS", tasks: "MANAGE_WORK_ORDERS", "task-status": "EXECUTE_WORK_ORDERS", execution: "EXECUTE_WORK_ORDERS", "spare-parts": "EXECUTE_WORK_ORDERS", completion: "EXECUTE_WORK_ORDERS", verification: "VERIFY_WORK_ORDERS", close: "CLOSE_WORK_ORDERS" };
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string; action: string }> }) {
   const meta = getRequestMeta(request);
@@ -20,6 +20,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       : action === "tasks" ? await addWorkOrderTask(id, taskSchema.parse(body), session.user, meta)
       : action === "task-status" ? await updateWorkOrderTask(id, String(body.taskId ?? ""), taskStatusSchema.parse(body), session.user, meta)
       : action === "execution" ? await addExecutionEntry(id, executionEntrySchema.parse(body), session.user, meta)
+      : action === "spare-parts" ? await addUsedSparePart(id, sparePartUsageSchema.parse(body), session.user, meta)
       : action === "completion" ? await submitCompletion(id, completionSchema.parse(body), session.user, meta)
       : action === "verification" ? await verifyCompletion(id, verificationSchema.parse(body), session.user, meta)
       : await closeWorkOrder(id, closeSchema.parse(body), session.user, meta);

@@ -141,11 +141,14 @@ export const assetStatusValues = ["ACTIVE", "OFFLINE", "RESERVED", "INACTIVE", "
 export const assetStructureLevelValues = ["SYSTEM", "EQUIPMENT", "COMPONENT"] as const;
 export const assetCustomFieldTypeValues = ["STRING", "NUMBER", "ARRAY", "DATE"] as const;
 export const notificationPriorityValues = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
+export const maintenanceSeverityValues = ["MINOR", "MODERATE", "MAJOR", "CRITICAL"] as const;
+export const equipmentOperatingStatusValues = ["RUNNING", "STOPPED", "DEGRADED", "UNKNOWN"] as const;
 export const notificationTypeValues = ["CORRECTIVE", "BREAKDOWN", "INSPECTION"] as const;
 export const notificationStatusValues = ["NEW", "APPROVED", "BACKLOG", "REJECTED", "COMPLETED"] as const;
 export const notificationDecisionValues = ["APPROVED", "BACKLOG", "REJECTED"] as const;
 export const workOrderStatusValues = ["OPEN", "BACKLOG", "IN_PROGRESS", "COMPLETION_PENDING", "VERIFIED", "CLOSED"] as const;
 export const workTaskStatusValues = ["OPEN", "IN_PROGRESS", "COMPLETED"] as const;
+export const workTaskKindValues = ["JOB_STEP", "CHECKLIST"] as const;
 export const verificationDecisionValues = ["VERIFIED", "RETURNED"] as const;
 
 export type NotificationStatus = (typeof notificationStatusValues)[number];
@@ -316,10 +319,15 @@ export const maintenanceNotifications = mysqlTable("maintenance_notifications", 
   description: text("description").notNull(),
   type: mysqlEnum("type", notificationTypeValues).notNull().default("CORRECTIVE"),
   priority: mysqlEnum("priority", notificationPriorityValues).notNull().default("MEDIUM"),
+  severity: mysqlEnum("severity", maintenanceSeverityValues).notNull().default("MODERATE"),
+  equipmentOperatingStatus: mysqlEnum("equipment_operating_status", equipmentOperatingStatusValues).notNull().default("UNKNOWN"),
   status: mysqlEnum("status", notificationStatusValues).notNull().default("NEW"),
   breakdown: boolean("breakdown").notNull().default(false),
   requestedBy: varchar("requested_by", { length: 36 }).notNull().references(() => users.id),
+  departmentId: varchar("department_id", { length: 36 }),
+  assignedPersonId: varchar("assigned_person_id", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
   supervisorId: varchar("supervisor_id", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+  photoAttachmentIds: longtext("photo_attachment_ids"),
   dueAt: datetime("due_at", { mode: "date", fsp: 3 }),
   reviewedAt: datetime("reviewed_at", { mode: "date", fsp: 3 }),
   completedAt: datetime("completed_at", { mode: "date", fsp: 3 }),
@@ -346,7 +354,10 @@ export const workOrders = mysqlTable("work_orders", {
   title: varchar("title", { length: 190 }).notNull(),
   description: text("description").notNull(),
   priority: mysqlEnum("priority", notificationPriorityValues).notNull().default("MEDIUM"),
+  severity: mysqlEnum("severity", maintenanceSeverityValues).notNull().default("MODERATE"),
   status: mysqlEnum("status", workOrderStatusValues).notNull().default("OPEN"),
+  departmentId: varchar("department_id", { length: 36 }),
+  backlogReason: text("backlog_reason"),
   assignedTo: varchar("assigned_to", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
   supervisorId: varchar("supervisor_id", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
   dueAt: datetime("due_at", { mode: "date", fsp: 3 }),
@@ -366,6 +377,7 @@ export const workOrderTasks = mysqlTable("work_order_tasks", {
   title: varchar("title", { length: 190 }).notNull(),
   description: text("description"),
   required: boolean("required").notNull().default(true),
+  kind: mysqlEnum("kind", workTaskKindValues).notNull().default("JOB_STEP"),
   status: mysqlEnum("status", workTaskStatusValues).notNull().default("OPEN"),
   assignedTo: varchar("assigned_to", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
   completedBy: varchar("completed_by", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
@@ -379,6 +391,8 @@ export const workExecutionEntries = mysqlTable("work_execution_entries", {
   workOrderId: varchar("work_order_id", { length: 36 }).notNull().references(() => workOrders.id, { onDelete: "cascade" }),
   description: text("description").notNull(),
   minutesSpent: int("minutes_spent").notNull(),
+  overtimeMinutes: int("overtime_minutes").notNull().default(0),
+  overtimeMultiplier: decimal("overtime_multiplier", { precision: 4, scale: 2 }).notNull().default("1"),
   actionAt: datetime("action_at", { mode: "date", fsp: 3 }).notNull(),
   actorUserId: varchar("actor_user_id", { length: 36 }).notNull().references(() => users.id),
   createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
@@ -394,10 +408,22 @@ export const workOrderCompletions = mysqlTable("work_order_completions", {
   escalation: text("escalation"),
   notes: text("notes"),
   durationMinutes: int("duration_minutes").notNull(),
+  beforePhotoAttachmentIds: longtext("before_photo_attachment_ids"),
+  afterPhotoAttachmentIds: longtext("after_photo_attachment_ids"),
   completedBy: varchar("completed_by", { length: 36 }).notNull().references(() => users.id),
   completedAt: datetime("completed_at", { mode: "date", fsp: 3 }).notNull(),
   createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
 }, (table) => [index("work_order_completions_order_idx").on(table.workOrderId, table.completedAt)]);
+
+export const workOrderSpareParts = mysqlTable("work_order_spare_parts", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  workOrderId: varchar("work_order_id", { length: 36 }).notNull().references(() => workOrders.id, { onDelete: "cascade" }),
+  sparePartId: varchar("spare_part_id", { length: 36 }).notNull().references(() => spareParts.id),
+  quantity: decimal("quantity", { precision: 14, scale: 4 }).notNull(),
+  note: text("note"),
+  usedBy: varchar("used_by", { length: 36 }).notNull().references(() => users.id),
+  usedAt: datetime("used_at", { mode: "date", fsp: 3 }).notNull(),
+}, (table) => [index("work_order_spare_parts_order_idx").on(table.workOrderId, table.usedAt)]);
 
 export const workOrderVerifications = mysqlTable("work_order_verifications", {
   id: varchar("id", { length: 36 }).primaryKey(),
