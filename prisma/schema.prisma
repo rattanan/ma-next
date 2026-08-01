@@ -57,8 +57,21 @@ enum AssetCriticality {
 }
 enum AssetStatus {
   ACTIVE
+  OFFLINE
+  RESERVED
   INACTIVE
   RETIRED
+}
+enum AssetStructureLevel {
+  SYSTEM
+  EQUIPMENT
+  COMPONENT
+}
+enum AssetCustomFieldType {
+  STRING
+  NUMBER
+  ARRAY
+  DATE
 }
 enum MaintenancePriority {
   LOW
@@ -429,10 +442,23 @@ model Asset {
   assetTypeId String @map("asset_type_id") @db.VarChar(36)
   assetCategoryId String? @map("asset_category_id") @db.VarChar(36)
   parentAssetId String? @map("parent_asset_id") @db.VarChar(36)
+  structureLevel AssetStructureLevel @default(EQUIPMENT) @map("structure_level")
   location String @db.VarChar(190)
   criticality AssetCriticality @default(MEDIUM)
   status AssetStatus @default(ACTIVE)
   ownerUserId String? @map("owner_user_id") @db.VarChar(36)
+  contractId String? @map("contract_id") @db.VarChar(36)
+  primaryImagePath String? @map("primary_image_path") @db.VarChar(500)
+  unit String? @db.VarChar(45)
+  serialNumber String? @map("serial_number") @db.VarChar(45)
+  maintenanceInterval Int? @map("maintenance_interval")
+  runningHourCode String? @map("running_hour_code") @db.VarChar(45)
+  budgetId String? @map("budget_id") @db.VarChar(45)
+  gpsCoordinates String? @map("gps_coordinates") @db.VarChar(90)
+  costCenterLegacyId Int? @map("cost_center_legacy_id")
+  budgetReferenceLegacyId Int? @map("budget_reference_legacy_id")
+  inventoryLocationLegacyId Int? @map("inventory_location_legacy_id")
+  inventoryLocationName String? @map("inventory_location_name") @db.VarChar(190)
   legacySourceId Int? @unique @map("legacy_source_id")
   createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(3)
@@ -441,7 +467,109 @@ model Asset {
   @@index([status])
   @@index([assetTypeId])
   @@index([parentAssetId])
+  @@index([structureLevel])
+  @@index([contractId])
   @@map("assets")
+}
+
+model Contract {
+  id String @id @default(uuid()) @db.VarChar(36)
+  code String @unique @db.VarChar(60)
+  name String @db.VarChar(160)
+  contractNumber String? @map("contract_number") @db.VarChar(60)
+  description String? @db.Text
+  vendorName String? @map("vendor_name") @db.VarChar(160)
+  contactName String? @map("contact_name") @db.VarChar(120)
+  telephone String? @db.VarChar(60)
+  signedAt DateTime? @map("signed_at") @db.DateTime(3)
+  startsAt DateTime? @map("starts_at") @db.DateTime(3)
+  endsAt DateTime? @map("ends_at") @db.DateTime(3)
+  amount Decimal? @db.Decimal(18, 2)
+  terms String? @db.Text
+  legacySourceId Int? @unique @map("legacy_source_id")
+  @@map("contracts")
+}
+
+model AssetHierarchyLink {
+  id String @id @default(uuid()) @db.VarChar(36)
+  sequence Int @default(10)
+  assetId String @map("asset_id") @db.VarChar(36)
+  parentAssetId String? @map("parent_asset_id") @db.VarChar(36)
+  rootAssetId String? @map("root_asset_id") @db.VarChar(36)
+  enabled Boolean @default(true)
+  quantity Decimal @default(1) @db.Decimal(14, 4)
+  note String? @db.Text
+  legacySourceId Int? @unique @map("legacy_source_id")
+  @@index([parentAssetId, sequence])
+  @@map("asset_hierarchy_links")
+}
+
+model SparePart {
+  id String @id @default(uuid()) @db.VarChar(36)
+  code String @unique @db.VarChar(80)
+  name String @db.VarChar(190)
+  description String? @db.Text
+  unit String? @db.VarChar(45)
+  availableQuantity Decimal? @map("available_quantity") @db.Decimal(14, 4)
+  legacySourceId Int? @unique @map("legacy_source_id")
+  @@map("spare_parts")
+}
+
+model AssetSparePart {
+  id String @id @default(uuid()) @db.VarChar(36)
+  sequence Int @default(10)
+  assetId String @map("asset_id") @db.VarChar(36)
+  sparePartId String @map("spare_part_id") @db.VarChar(36)
+  enabled Boolean @default(true)
+  requiredQuantity Decimal @default(1) @map("required_quantity") @db.Decimal(14, 4)
+  note String? @db.Text
+  legacySourceId Int? @unique @map("legacy_source_id")
+  @@index([assetId, sequence])
+  @@map("asset_spare_parts")
+}
+
+model AssetCustomFieldGroup {
+  id String @id @default(uuid()) @db.VarChar(36)
+  name String @unique @db.VarChar(80)
+  sortOrder Int @default(10) @map("sort_order")
+  legacySourceId Int? @unique @map("legacy_source_id")
+  @@map("asset_custom_field_groups")
+}
+
+model AssetCustomFieldDefinition {
+  id String @id @default(uuid()) @db.VarChar(36)
+  assetCategoryId String? @map("asset_category_id") @db.VarChar(36)
+  groupId String @map("group_id") @db.VarChar(36)
+  name String @db.VarChar(80)
+  label String @db.VarChar(190)
+  description String? @db.Text
+  fieldType AssetCustomFieldType @map("field_type")
+  placeholder String? @db.VarChar(190)
+  defaultValue String? @map("default_value") @db.VarChar(190)
+  availableValues String? @map("available_values") @db.Text
+  unit String? @db.VarChar(45)
+  sortOrder Int @default(10) @map("sort_order")
+  active Boolean @default(true)
+  legacySourceId Int? @unique @map("legacy_source_id")
+  @@index([assetCategoryId, groupId, sortOrder])
+  @@map("asset_custom_field_definitions")
+}
+
+model AssetCustomFieldValue {
+  id String @id @default(uuid()) @db.VarChar(36)
+  assetId String @map("asset_id") @db.VarChar(36)
+  definitionId String @map("definition_id") @db.VarChar(36)
+  value String @db.VarChar(500)
+  legacySourceId Int? @unique @map("legacy_source_id")
+  @@unique([assetId, definitionId])
+  @@map("asset_custom_field_values")
+}
+
+model AssetDocumentMetadata {
+  attachmentId String @id @map("attachment_id") @db.VarChar(36)
+  note String? @db.Text
+  legacySourceId Int? @unique @map("legacy_source_id")
+  @@map("asset_document_metadata")
 }
 
 model MaintenanceNotification {

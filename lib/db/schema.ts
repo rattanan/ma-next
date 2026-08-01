@@ -1,6 +1,7 @@
 import {
   boolean,
   datetime,
+  decimal,
   index,
   int,
   longtext,
@@ -121,7 +122,9 @@ export const loginRateLimits = mysqlTable("login_rate_limits", {
 }, (table) => [primaryKey({ columns: [table.ipHash] })]);
 
 export const assetCriticalityValues = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
-export const assetStatusValues = ["ACTIVE", "INACTIVE", "RETIRED"] as const;
+export const assetStatusValues = ["ACTIVE", "OFFLINE", "RESERVED", "INACTIVE", "RETIRED"] as const;
+export const assetStructureLevelValues = ["SYSTEM", "EQUIPMENT", "COMPONENT"] as const;
+export const assetCustomFieldTypeValues = ["STRING", "NUMBER", "ARRAY", "DATE"] as const;
 export const notificationPriorityValues = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
 export const notificationTypeValues = ["CORRECTIVE", "BREAKDOWN", "INSPECTION"] as const;
 export const notificationStatusValues = ["NEW", "APPROVED", "BACKLOG", "REJECTED", "COMPLETED"] as const;
@@ -135,6 +138,8 @@ export type NotificationDecision = (typeof notificationDecisionValues)[number];
 export type WorkOrderStatus = (typeof workOrderStatusValues)[number];
 export type WorkTaskStatus = (typeof workTaskStatusValues)[number];
 export type VerificationDecision = (typeof verificationDecisionValues)[number];
+export type AssetStatus = (typeof assetStatusValues)[number];
+export type AssetStructureLevel = (typeof assetStructureLevelValues)[number];
 
 export const assetTypes = mysqlTable("asset_types", {
   id: varchar("id", { length: 36 }).primaryKey(),
@@ -160,6 +165,23 @@ export const assetCategories = mysqlTable("asset_categories", {
   updatedBy: varchar("updated_by", { length: 36 }).notNull().references(() => users.id),
 }, (table) => [uniqueIndex("asset_categories_code_uq").on(table.code), index("asset_categories_active_idx").on(table.active)]);
 
+export const contracts = mysqlTable("contracts", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  code: varchar("code", { length: 60 }).notNull(),
+  name: varchar("name", { length: 160 }).notNull(),
+  contractNumber: varchar("contract_number", { length: 60 }),
+  description: text("description"),
+  vendorName: varchar("vendor_name", { length: 160 }),
+  contactName: varchar("contact_name", { length: 120 }),
+  telephone: varchar("telephone", { length: 60 }),
+  signedAt: datetime("signed_at", { mode: "date", fsp: 3 }),
+  startsAt: datetime("starts_at", { mode: "date", fsp: 3 }),
+  endsAt: datetime("ends_at", { mode: "date", fsp: 3 }),
+  amount: decimal("amount", { precision: 18, scale: 2 }),
+  terms: text("terms"),
+  legacySourceId: int("legacy_source_id"),
+}, (table) => [uniqueIndex("contracts_code_uq").on(table.code), uniqueIndex("contracts_legacy_source_uq").on(table.legacySourceId)]);
+
 export const assets = mysqlTable("assets", {
   id: varchar("id", { length: 36 }).primaryKey(),
   code: varchar("code", { length: 60 }).notNull(),
@@ -168,10 +190,23 @@ export const assets = mysqlTable("assets", {
   assetTypeId: varchar("asset_type_id", { length: 36 }).notNull().references(() => assetTypes.id),
   assetCategoryId: varchar("asset_category_id", { length: 36 }).references(() => assetCategories.id),
   parentAssetId: varchar("parent_asset_id", { length: 36 }),
+  structureLevel: mysqlEnum("structure_level", assetStructureLevelValues).notNull().default("EQUIPMENT"),
   location: varchar("location", { length: 190 }).notNull(),
   criticality: mysqlEnum("criticality", assetCriticalityValues).notNull().default("MEDIUM"),
   status: mysqlEnum("status", assetStatusValues).notNull().default("ACTIVE"),
   ownerUserId: varchar("owner_user_id", { length: 36 }).references(() => users.id, { onDelete: "set null" }),
+  contractId: varchar("contract_id", { length: 36 }).references(() => contracts.id, { onDelete: "set null" }),
+  primaryImagePath: varchar("primary_image_path", { length: 500 }),
+  unit: varchar("unit", { length: 45 }),
+  serialNumber: varchar("serial_number", { length: 45 }),
+  maintenanceInterval: int("maintenance_interval"),
+  runningHourCode: varchar("running_hour_code", { length: 45 }),
+  budgetId: varchar("budget_id", { length: 45 }),
+  gpsCoordinates: varchar("gps_coordinates", { length: 90 }),
+  costCenterLegacyId: int("cost_center_legacy_id"),
+  budgetReferenceLegacyId: int("budget_reference_legacy_id"),
+  inventoryLocationLegacyId: int("inventory_location_legacy_id"),
+  inventoryLocationName: varchar("inventory_location_name", { length: 190 }),
   legacySourceId: int("legacy_source_id"),
   createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
   updatedAt: datetime("updated_at", { mode: "date", fsp: 3 }).notNull(),
@@ -183,7 +218,80 @@ export const assets = mysqlTable("assets", {
   index("assets_status_idx").on(table.status),
   index("assets_type_idx").on(table.assetTypeId),
   index("assets_parent_idx").on(table.parentAssetId),
+  index("assets_level_idx").on(table.structureLevel),
+  index("assets_contract_idx").on(table.contractId),
 ]);
+
+export const assetHierarchyLinks = mysqlTable("asset_hierarchy_links", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  sequence: int("sequence").notNull().default(10),
+  assetId: varchar("asset_id", { length: 36 }).notNull().references(() => assets.id, { onDelete: "cascade" }),
+  parentAssetId: varchar("parent_asset_id", { length: 36 }).references(() => assets.id, { onDelete: "set null" }),
+  rootAssetId: varchar("root_asset_id", { length: 36 }).references(() => assets.id, { onDelete: "set null" }),
+  enabled: boolean("enabled").notNull().default(true),
+  quantity: decimal("quantity", { precision: 14, scale: 4 }).notNull().default("1"),
+  note: text("note"),
+  legacySourceId: int("legacy_source_id"),
+}, (table) => [index("asset_hierarchy_parent_idx").on(table.parentAssetId, table.sequence), uniqueIndex("asset_hierarchy_legacy_uq").on(table.legacySourceId)]);
+
+export const spareParts = mysqlTable("spare_parts", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  code: varchar("code", { length: 80 }).notNull(),
+  name: varchar("name", { length: 190 }).notNull(),
+  description: text("description"),
+  unit: varchar("unit", { length: 45 }),
+  availableQuantity: decimal("available_quantity", { precision: 14, scale: 4 }),
+  legacySourceId: int("legacy_source_id"),
+}, (table) => [uniqueIndex("spare_parts_code_uq").on(table.code), uniqueIndex("spare_parts_legacy_uq").on(table.legacySourceId)]);
+
+export const assetSpareParts = mysqlTable("asset_spare_parts", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  sequence: int("sequence").notNull().default(10),
+  assetId: varchar("asset_id", { length: 36 }).notNull().references(() => assets.id, { onDelete: "cascade" }),
+  sparePartId: varchar("spare_part_id", { length: 36 }).notNull().references(() => spareParts.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(true),
+  requiredQuantity: decimal("required_quantity", { precision: 14, scale: 4 }).notNull().default("1"),
+  note: text("note"),
+  legacySourceId: int("legacy_source_id"),
+}, (table) => [index("asset_spare_parts_asset_idx").on(table.assetId, table.sequence), uniqueIndex("asset_spare_parts_legacy_uq").on(table.legacySourceId)]);
+
+export const assetCustomFieldGroups = mysqlTable("asset_custom_field_groups", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  name: varchar("name", { length: 80 }).notNull(),
+  sortOrder: int("sort_order").notNull().default(10),
+  legacySourceId: int("legacy_source_id"),
+}, (table) => [uniqueIndex("asset_custom_field_groups_name_uq").on(table.name), uniqueIndex("asset_custom_field_groups_legacy_uq").on(table.legacySourceId)]);
+
+export const assetCustomFieldDefinitions = mysqlTable("asset_custom_field_definitions", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  assetCategoryId: varchar("asset_category_id", { length: 36 }).references(() => assetCategories.id, { onDelete: "cascade" }),
+  groupId: varchar("group_id", { length: 36 }).notNull().references(() => assetCustomFieldGroups.id),
+  name: varchar("name", { length: 80 }).notNull(),
+  label: varchar("label", { length: 190 }).notNull(),
+  description: text("description"),
+  fieldType: mysqlEnum("field_type", assetCustomFieldTypeValues).notNull(),
+  placeholder: varchar("placeholder", { length: 190 }),
+  defaultValue: varchar("default_value", { length: 190 }),
+  availableValues: text("available_values"),
+  unit: varchar("unit", { length: 45 }),
+  sortOrder: int("sort_order").notNull().default(10),
+  active: boolean("active").notNull().default(true),
+  legacySourceId: int("legacy_source_id"),
+}, (table) => [index("asset_custom_def_category_idx").on(table.assetCategoryId, table.groupId, table.sortOrder), uniqueIndex("asset_custom_def_legacy_uq").on(table.legacySourceId)]);
+
+export const assetCustomFieldValues = mysqlTable("asset_custom_field_values", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  assetId: varchar("asset_id", { length: 36 }).notNull().references(() => assets.id, { onDelete: "cascade" }),
+  definitionId: varchar("definition_id", { length: 36 }).notNull().references(() => assetCustomFieldDefinitions.id, { onDelete: "cascade" }),
+  value: varchar("value", { length: 500 }).notNull(),
+  legacySourceId: int("legacy_source_id"),
+}, (table) => [uniqueIndex("asset_custom_values_asset_definition_uq").on(table.assetId, table.definitionId), uniqueIndex("asset_custom_values_legacy_uq").on(table.legacySourceId)]);
+
+export const assetDocumentMetadata = mysqlTable("asset_document_metadata", {
+  attachmentId: varchar("attachment_id", { length: 36 }).primaryKey(),
+  note: text("note"),
+  legacySourceId: int("legacy_source_id"),
+}, (table) => [uniqueIndex("asset_document_metadata_legacy_uq").on(table.legacySourceId)]);
 
 export const maintenanceNotifications = mysqlTable("maintenance_notifications", {
   id: varchar("id", { length: 36 }).primaryKey(),
