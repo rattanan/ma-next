@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, Building2, Database, LogOut, Menu, ShieldCheck, UserRound, Users, Wrench } from "lucide-react";
+import { Bell, Boxes, Building2, Database, LogOut, Menu, ShieldCheck, UserRound, Users, Wrench } from "lucide-react";
 import { MaLogo } from "@/components/brand/ma-logo";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -12,6 +12,7 @@ import { Breadcrumbs } from "./breadcrumbs";
 type ShellUser = { fullName: string; role: string; permissions: string[] };
 
 const navigation = [
+  { href: "/assets", label: "Assets", icon: Boxes, permission: "ASSET_READ" },
   { href: "/maintenance", label: "Maintenance", icon: Wrench, permission: "VIEW_MAINTENANCE" },
   { href: "/organization", label: "Organization", icon: Building2, permission: "VIEW_ORGANIZATION" },
   { href: "/settings/master-data", label: "Master data", icon: Database, permission: "VIEW_MASTER_DATA" },

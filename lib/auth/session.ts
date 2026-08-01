@@ -29,7 +29,7 @@ export async function getSessionByToken(token?: string) {
   await prisma.session.update({ where: { id: row.id }, data: { lastActiveAt: now } });
   const role = roleValues.includes(row.user.legacyRole as Role) ? row.user.legacyRole as Role : "VIEWER";
   const assigned = row.user.roles.flatMap((assignment) => assignment.role.active ? assignment.role.permissions.map((item) => item.permission.code as Permission) : []);
-  const permissions = [...new Set(assigned.length ? assigned : [...rolePermissions[role]])];
+  const permissions = [...new Set([...rolePermissions[role], ...assigned])];
   return { sessionId: row.id, user: { id: row.user.id, fullName: row.user.fullName, username: row.user.username, email: row.user.email, role, permissions, mustChangePassword: row.user.mustChangePassword } satisfies AuthenticatedUser, expiresAt: row.expiresAt };
 }
 export async function getSession(request: NextRequest) { return getSessionByToken(request.cookies.get(SESSION_COOKIE)?.value); }

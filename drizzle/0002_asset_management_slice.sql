@@ -1,0 +1,78 @@
+ALTER TABLE `assets`
+  MODIFY `status` enum('ACTIVE','OFFLINE','RESERVED','INACTIVE','RETIRED') NOT NULL DEFAULT 'ACTIVE',
+  ADD COLUMN `structure_level` enum('SYSTEM','EQUIPMENT','COMPONENT') NOT NULL DEFAULT 'EQUIPMENT' AFTER `parent_asset_id`,
+  ADD COLUMN `contract_id` varchar(36) NULL AFTER `owner_user_id`,
+  ADD COLUMN `primary_image_path` varchar(500) NULL,
+  ADD COLUMN `unit` varchar(45) NULL,
+  ADD COLUMN `serial_number` varchar(45) NULL,
+  ADD COLUMN `maintenance_interval` int NULL,
+  ADD COLUMN `running_hour_code` varchar(45) NULL,
+  ADD COLUMN `budget_id` varchar(45) NULL,
+  ADD COLUMN `gps_coordinates` varchar(90) NULL,
+  ADD COLUMN `cost_center_legacy_id` int NULL,
+  ADD COLUMN `budget_reference_legacy_id` int NULL,
+  ADD COLUMN `inventory_location_legacy_id` int NULL,
+  ADD COLUMN `inventory_location_name` varchar(190) NULL,
+  ADD KEY `assets_level_idx` (`structure_level`),
+  ADD KEY `assets_contract_idx` (`contract_id`);
+
+CREATE TABLE `contracts` (
+  `id` varchar(36) NOT NULL, `code` varchar(60) NOT NULL, `name` varchar(160) NOT NULL,
+  `contract_number` varchar(60), `description` text, `vendor_name` varchar(160), `contact_name` varchar(120), `telephone` varchar(60),
+  `signed_at` datetime(3), `starts_at` datetime(3), `ends_at` datetime(3), `amount` decimal(18,2), `terms` text, `legacy_source_id` int,
+  PRIMARY KEY (`id`), UNIQUE KEY `contracts_code_uq` (`code`), UNIQUE KEY `contracts_legacy_source_uq` (`legacy_source_id`)
+);
+
+ALTER TABLE `assets` ADD CONSTRAINT `assets_contract_fk` FOREIGN KEY (`contract_id`) REFERENCES `contracts` (`id`) ON DELETE SET NULL;
+
+CREATE TABLE `asset_hierarchy_links` (
+  `id` varchar(36) NOT NULL, `sequence` int NOT NULL DEFAULT 10, `asset_id` varchar(36) NOT NULL,
+  `parent_asset_id` varchar(36), `root_asset_id` varchar(36), `enabled` boolean NOT NULL DEFAULT true,
+  `quantity` decimal(14,4) NOT NULL DEFAULT 1, `note` text, `legacy_source_id` int,
+  PRIMARY KEY (`id`), UNIQUE KEY `asset_hierarchy_legacy_uq` (`legacy_source_id`), KEY `asset_hierarchy_parent_idx` (`parent_asset_id`,`sequence`),
+  CONSTRAINT `asset_hierarchy_asset_fk` FOREIGN KEY (`asset_id`) REFERENCES `assets` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `asset_hierarchy_parent_fk` FOREIGN KEY (`parent_asset_id`) REFERENCES `assets` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `asset_hierarchy_root_fk` FOREIGN KEY (`root_asset_id`) REFERENCES `assets` (`id`) ON DELETE SET NULL
+);
+
+CREATE TABLE `spare_parts` (
+  `id` varchar(36) NOT NULL, `code` varchar(80) NOT NULL, `name` varchar(190) NOT NULL, `description` text,
+  `unit` varchar(45), `available_quantity` decimal(14,4), `legacy_source_id` int,
+  PRIMARY KEY (`id`), UNIQUE KEY `spare_parts_code_uq` (`code`), UNIQUE KEY `spare_parts_legacy_uq` (`legacy_source_id`)
+);
+
+CREATE TABLE `asset_spare_parts` (
+  `id` varchar(36) NOT NULL, `sequence` int NOT NULL DEFAULT 10, `asset_id` varchar(36) NOT NULL, `spare_part_id` varchar(36) NOT NULL,
+  `enabled` boolean NOT NULL DEFAULT true, `required_quantity` decimal(14,4) NOT NULL DEFAULT 1, `note` text, `legacy_source_id` int,
+  PRIMARY KEY (`id`), UNIQUE KEY `asset_spare_parts_legacy_uq` (`legacy_source_id`), KEY `asset_spare_parts_asset_idx` (`asset_id`,`sequence`),
+  CONSTRAINT `asset_spare_parts_asset_fk` FOREIGN KEY (`asset_id`) REFERENCES `assets` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `asset_spare_parts_part_fk` FOREIGN KEY (`spare_part_id`) REFERENCES `spare_parts` (`id`) ON DELETE CASCADE
+);
+
+CREATE TABLE `asset_custom_field_groups` (
+  `id` varchar(36) NOT NULL, `name` varchar(80) NOT NULL, `sort_order` int NOT NULL DEFAULT 10, `legacy_source_id` int,
+  PRIMARY KEY (`id`), UNIQUE KEY `asset_custom_field_groups_name_uq` (`name`), UNIQUE KEY `asset_custom_field_groups_legacy_uq` (`legacy_source_id`)
+);
+
+CREATE TABLE `asset_custom_field_definitions` (
+  `id` varchar(36) NOT NULL, `asset_category_id` varchar(36), `group_id` varchar(36) NOT NULL,
+  `name` varchar(80) NOT NULL, `label` varchar(190) NOT NULL, `description` text,
+  `field_type` enum('STRING','NUMBER','ARRAY','DATE') NOT NULL, `placeholder` varchar(190), `default_value` varchar(190),
+  `available_values` text, `unit` varchar(45), `sort_order` int NOT NULL DEFAULT 10, `active` boolean NOT NULL DEFAULT true, `legacy_source_id` int,
+  PRIMARY KEY (`id`), UNIQUE KEY `asset_custom_def_legacy_uq` (`legacy_source_id`), KEY `asset_custom_def_category_idx` (`asset_category_id`,`group_id`,`sort_order`),
+  CONSTRAINT `asset_custom_def_category_fk` FOREIGN KEY (`asset_category_id`) REFERENCES `asset_categories` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `asset_custom_def_group_fk` FOREIGN KEY (`group_id`) REFERENCES `asset_custom_field_groups` (`id`)
+);
+
+CREATE TABLE `asset_custom_field_values` (
+  `id` varchar(36) NOT NULL, `asset_id` varchar(36) NOT NULL, `definition_id` varchar(36) NOT NULL, `value` varchar(500) NOT NULL, `legacy_source_id` int,
+  PRIMARY KEY (`id`), UNIQUE KEY `asset_custom_values_asset_definition_uq` (`asset_id`,`definition_id`), UNIQUE KEY `asset_custom_values_legacy_uq` (`legacy_source_id`),
+  CONSTRAINT `asset_custom_values_asset_fk` FOREIGN KEY (`asset_id`) REFERENCES `assets` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `asset_custom_values_definition_fk` FOREIGN KEY (`definition_id`) REFERENCES `asset_custom_field_definitions` (`id`) ON DELETE CASCADE
+);
+
+CREATE TABLE `asset_document_metadata` (
+  `attachment_id` varchar(36) NOT NULL, `note` text, `legacy_source_id` int,
+  PRIMARY KEY (`attachment_id`), UNIQUE KEY `asset_document_metadata_legacy_uq` (`legacy_source_id`),
+  CONSTRAINT `asset_document_metadata_attachment_fk` FOREIGN KEY (`attachment_id`) REFERENCES `attachments` (`id`) ON DELETE CASCADE
+);

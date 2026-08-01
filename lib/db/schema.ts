@@ -106,6 +106,21 @@ export const auditLogs = mysqlTable("audit_logs", {
   index("audit_created_idx").on(table.createdAt),
 ]);
 
+export const attachments = mysqlTable("attachments", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  entityType: varchar("entity_type", { length: 80 }).notNull(),
+  entityId: varchar("entity_id", { length: 80 }).notNull(),
+  driver: mysqlEnum("driver", ["LOCAL", "S3", "AZURE"]).notNull().default("LOCAL"),
+  storageKey: varchar("storage_key", { length: 500 }).notNull(),
+  originalName: varchar("original_name", { length: 255 }).notNull(),
+  contentType: varchar("content_type", { length: 120 }).notNull(),
+  byteSize: int("byte_size").notNull(),
+  checksum: varchar("checksum", { length: 128 }),
+  uploadedBy: varchar("uploaded_by", { length: 36 }).notNull(),
+  createdAt: datetime("created_at", { mode: "date", fsp: 3 }).notNull(),
+  deletedAt: datetime("deleted_at", { mode: "date", fsp: 3 }),
+}, (table) => [index("attachments_entity_idx").on(table.entityType, table.entityId), index("attachments_uploader_idx").on(table.uploadedBy)]);
+
 export const passwordHistory = mysqlTable("password_history", {
   id: varchar("id", { length: 36 }).primaryKey(),
   userId: varchar("user_id", { length: 36 }).notNull().references(() => users.id, { onDelete: "cascade" }),

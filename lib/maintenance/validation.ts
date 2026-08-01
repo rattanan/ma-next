@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { assetCriticalityValues, assetStatusValues, notificationDecisionValues, notificationPriorityValues, notificationTypeValues, verificationDecisionValues, workTaskStatusValues } from "../db/schema";
+import { assetCriticalityValues, assetStatusValues, assetStructureLevelValues, notificationDecisionValues, notificationPriorityValues, notificationTypeValues, verificationDecisionValues, workTaskStatusValues } from "../db/schema";
 
 const optionalText = (max: number) => z.string().trim().max(max).optional().default("");
 const optionalId = z.string().uuid().nullable().optional();
@@ -11,10 +11,23 @@ export const assetSchema = z.object({
   assetTypeId: z.string().uuid(),
   assetCategoryId: optionalId,
   parentAssetId: optionalId,
+  structureLevel: z.enum(assetStructureLevelValues).default("EQUIPMENT"),
   location: z.string().trim().min(2).max(190),
   criticality: z.enum(assetCriticalityValues).default("MEDIUM"),
   status: z.enum(assetStatusValues).default("ACTIVE"),
   ownerUserId: optionalId,
+  contractId: optionalId,
+  primaryImagePath: z.string().trim().max(500).nullable().optional(),
+  unit: z.string().trim().max(45).nullable().optional(),
+  serialNumber: z.string().trim().max(45).nullable().optional(),
+  maintenanceInterval: z.coerce.number().int().nonnegative().nullable().optional(),
+  runningHourCode: z.string().trim().max(45).nullable().optional(),
+  budgetId: z.string().trim().max(45).nullable().optional(),
+  gpsCoordinates: z.string().trim().max(90).nullable().optional(),
+  costCenterLegacyId: z.coerce.number().int().positive().nullable().optional(),
+  budgetReferenceLegacyId: z.coerce.number().int().positive().nullable().optional(),
+  inventoryLocationLegacyId: z.coerce.number().int().positive().nullable().optional(),
+  inventoryLocationName: z.string().trim().max(190).nullable().optional(),
 });
 
 export const notificationSchema = z.object({

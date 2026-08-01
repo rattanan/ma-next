@@ -10,6 +10,7 @@ const permissionDefinitions = [
   ["VIEW_ATTACHMENTS", "View attachments", "FILES"], ["MANAGE_ATTACHMENTS", "Manage attachments", "FILES"],
   ["MANAGE_USERS", "Manage users", "IDENTITY"], ["VIEW_LOGIN_HISTORY", "View login history", "IDENTITY"], ["VIEW_AUDIT_LOGS", "View audit logs", "AUDIT"],
   ["VIEW_MAINTENANCE", "View maintenance", "MAINTENANCE"], ["CREATE_MAINTENANCE_NOTIFICATION", "Report maintenance", "MAINTENANCE"], ["REVIEW_MAINTENANCE_NOTIFICATION", "Review maintenance notification", "MAINTENANCE"], ["MANAGE_WORK_ORDERS", "Manage work orders", "MAINTENANCE"], ["EXECUTE_WORK_ORDERS", "Execute work orders", "MAINTENANCE"], ["VERIFY_WORK_ORDERS", "Verify work orders", "MAINTENANCE"], ["CLOSE_WORK_ORDERS", "Close work orders", "MAINTENANCE"],
+  ["ASSET_READ", "View asset register and detail", "ASSETS"], ["ASSET_CREATE", "Create assets", "ASSETS"], ["ASSET_UPDATE", "Update assets", "ASSETS"], ["ASSET_ARCHIVE", "Archive assets", "ASSETS"], ["ASSET_HIERARCHY_MANAGE", "Manage asset hierarchy", "ASSETS"], ["ASSET_CUSTOM_FIELDS_MANAGE", "Manage asset custom fields", "ASSETS"],
 ] as const;
 
 function options(url: string) { const value = new URL(url); return { host: value.hostname, port: Number(value.port || 3306), user: decodeURIComponent(value.username), password: decodeURIComponent(value.password), database: value.pathname.replace(/^\//, ""), connectionLimit: 5 }; }
