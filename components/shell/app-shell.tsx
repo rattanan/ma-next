@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { Bell, Boxes, Building2, ClipboardCheck, ClipboardList, ClipboardPlus, Database, LogOut, Menu, PanelLeftClose, PanelLeftOpen, ShieldCheck, UserRound, Users, Wrench } from "lucide-react";
+import { ArrowLeftRight, Bell, BookOpen, Boxes, Building2, ClipboardCheck, ClipboardList, ClipboardPlus, Database, List, LogOut, MapPin, Menu, PackageSearch, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, Truck, UserRound, Users, Wrench } from "lucide-react";
 import { MaLogo } from "@/components/brand/ma-logo";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -19,7 +19,19 @@ const navigation = [
   { href: "/notifications", label: "แจ้งบำรุงรักษา", icon: ClipboardPlus, permission: "NOTIFICATION_VIEW" },
   { href: "/maintenance", label: "Maintenance", icon: Wrench, permission: "VIEW_MAINTENANCE" },
   { href: "/work-orders", label: "Work Orders", icon: ClipboardList, permission: "VIEW_MAINTENANCE" },
-  { href: "/approvals", label: "Approve Center", icon: ClipboardCheck, permission: "NOTIFICATION_REVIEW", approvalBadge: true },
+  { href: "/approvals", label: "Approve Center", icon: ClipboardCheck, permission: "VIEW_APPROVAL_CENTER", approvalBadge: true },
+  { href: "/inventory", label: "Inventory Dashboard", icon: Boxes, permission: "VIEW_INVENTORY" },
+  { href: "/inventory/items", label: "Stock Items", icon: PackageSearch, permission: "VIEW_INVENTORY" },
+  { href: "/inventory/locations", label: "Storage Locations", icon: MapPin, permission: "VIEW_INVENTORY" },
+  { href: "/inventory/vendors", label: "Vendors", icon: Truck, permission: "VIEW_INVENTORY" },
+  { href: "/inventory/on-hand", label: "Stock On-hand", icon: List, permission: "INVENTORY_REPORT_VIEW" },
+  { href: "/inventory/transactions", label: "Inventory Transactions", icon: ClipboardList, permission: "INVENTORY_REQUEST_VIEW" },
+  { href: "/inventory/requests", label: "My Inventory Requests", icon: ClipboardPlus, permission: "INVENTORY_REQUEST_VIEW" },
+  { href: "/inventory/counts", label: "Stock Count", icon: ClipboardCheck, anyPermissions: ["INVENTORY_COUNT_MANAGE", "INVENTORY_COUNT_REVIEW"] },
+  { href: "/inventory/approvals", label: "Inventory Approvals", icon: ShieldCheck, permission: "VIEW_APPROVAL_CENTER" },
+  { href: "/inventory/movement", label: "Inventory Movement", icon: ArrowLeftRight, permission: "INVENTORY_REPORT_VIEW" },
+  { href: "/inventory/stock-card", label: "Stock Card", icon: BookOpen, permission: "INVENTORY_REPORT_VIEW" },
+  { href: "/inventory/configuration", label: "Inventory Configuration", icon: Settings, permission: "INVENTORY_CONFIG_MANAGE" },
   { href: "/organization", label: "Organization", icon: Building2, permission: "VIEW_ORGANIZATION" },
   { href: "/settings/master-data", label: "Master data", icon: Database, permission: "VIEW_MASTER_DATA" },
   { href: "/admin/users", label: "Users & access", icon: Users, permission: "MANAGE_USERS" },
@@ -49,7 +61,7 @@ function Navigation({ user, approvalCount, collapsed = false }: { user: ShellUse
         <MaLogo inverse compact={collapsed} size="sm" />
       </Link>
       <nav className="flex-1 space-y-1 py-5" aria-label="Primary navigation">
-        {navigation.filter((item) => !item.permission || user.permissions.includes(item.permission)).map((item) => {
+        {navigation.filter((item) => (!item.permission || user.permissions.includes(item.permission)) && (!item.anyPermissions || item.anyPermissions.some((permission) => user.permissions.includes(permission)))).map((item) => {
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
           return (
@@ -75,7 +87,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
   const [approvalCount, setApprovalCount] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
   const sidebarCollapsed = useSyncExternalStore(subscribeToSidebarState, getSidebarState, getServerSidebarState);
-  const loadApprovalCount = useCallback(async () => { if (!user.permissions.includes("NOTIFICATION_REVIEW")) return; try { const response = await fetch("/api/approvals/pending-count", { cache: "no-store" }); if (response.ok) setApprovalCount((await response.json()).count ?? 0); } catch { /* The next poll retries without disrupting navigation. */ } }, [user.permissions]);
+  const loadApprovalCount = useCallback(async () => { if (!user.permissions.includes("VIEW_APPROVAL_CENTER")) return; try { const response = await fetch("/api/approvals/pending-count", { cache: "no-store" }); if (response.ok) setApprovalCount((await response.json()).count ?? 0); } catch { /* The next poll retries without disrupting navigation. */ } }, [user.permissions]);
   const loadUnreadCount = useCallback(async () => { if (!user.permissions.includes("VIEW_NOTIFICATIONS")) return; try { const response = await fetch("/api/notifications/unread-count", { cache: "no-store" }); if (response.ok) setUnreadCount((await response.json()).count ?? 0); } catch { /* The next poll retries without disrupting navigation. */ } }, [user.permissions]);
   useEffect(() => { const initial = window.setTimeout(() => void loadApprovalCount(), 0); const interval = window.setInterval(() => void loadApprovalCount(), 45_000); window.addEventListener("approval-count-changed", loadApprovalCount); return () => { window.clearTimeout(initial); window.clearInterval(interval); window.removeEventListener("approval-count-changed", loadApprovalCount); }; }, [loadApprovalCount]);
   useEffect(() => { const initial = window.setTimeout(() => void loadUnreadCount(), 0); const interval = window.setInterval(() => void loadUnreadCount(), 45_000); window.addEventListener("notification-unread-count-changed", loadUnreadCount); return () => { window.clearTimeout(initial); window.clearInterval(interval); window.removeEventListener("notification-unread-count-changed", loadUnreadCount); }; }, [loadUnreadCount]);

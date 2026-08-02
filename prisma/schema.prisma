@@ -198,6 +198,67 @@ enum OperatorDecision {
   REJECTED
 }
 
+enum InventoryDocumentType {
+  ISSUE
+  RECEIPT
+  TRANSFER
+}
+
+enum InventoryDocumentStatus {
+  DRAFT
+  PENDING_MAINTENANCE_MANAGER
+  PENDING_WAREHOUSE_MANAGER
+  APPROVED
+  POSTED
+  RETURNED
+  REJECTED
+  CANCELLED
+  POSTING_FAILED
+}
+
+enum InventoryApprovalStep {
+  MAINTENANCE_MANAGER
+  WAREHOUSE_MANAGER
+  PLANT_MANAGER
+}
+
+enum InventoryApprovalStatus {
+  PENDING
+  IN_REVIEW
+  APPROVED
+  RETURNED
+  REJECTED
+}
+
+enum InventoryMovementType {
+  ISSUE
+  RECEIPT
+  TRANSFER_OUT
+  TRANSFER_IN
+  ADJUST_IN
+  ADJUST_OUT
+  REVERSAL
+}
+
+enum StockCountType {
+  FULL_COUNT
+  CYCLE_COUNT
+  LOCATION
+  STOCK_ITEM
+  CATEGORY
+}
+
+enum StockCountStatus {
+  DRAFT
+  COUNTING
+  PENDING_PLANT_MANAGER
+  APPROVED
+  POSTED
+  RETURNED
+  REJECTED
+  POSTING_FAILED
+}
+
 model User {
   id                         String            @id @default(uuid()) @db.VarChar(36)
   fullName                   String            @map("full_name") @db.VarChar(160)
@@ -1039,4 +1100,394 @@ model WorkOrderOperatorDecision {
   decidedAt DateTime @map("decided_at") @db.DateTime(3)
   @@index([workOrderId, decidedAt])
   @@map("work_order_operator_decisions")
+}
+
+model StockItem {
+  id                 String               @id @default(uuid()) @db.VarChar(36)
+  code               String               @unique(map: "stock_items_code_uq") @db.VarChar(80)
+  name               String               @db.VarChar(190)
+  description        String?              @db.Text
+  category           String?              @db.VarChar(120)
+  unit               String               @db.VarChar(45)
+  manufacturer       String?              @db.VarChar(160)
+  partNumber         String?              @map("part_number") @db.VarChar(120)
+  barcode            String?              @db.VarChar(160)
+  minimumStock       Decimal              @default(0) @map("minimum_stock") @db.Decimal(20, 6)
+  maximumStock       Decimal?             @map("maximum_stock") @db.Decimal(20, 6)
+  reorderPoint       Decimal?             @map("reorder_point") @db.Decimal(20, 6)
+  defaultUnitCost    Decimal              @default(0) @map("default_unit_cost") @db.Decimal(20, 6)
+  movingAverageCost Decimal              @default(0) @map("moving_average_cost") @db.Decimal(20, 6)
+  mainLocationId     String?              @map("main_location_id") @db.VarChar(36)
+  criticalSparePart  Boolean              @default(false) @map("critical_spare_part")
+  active             Boolean              @default(true)
+  remark             String?              @db.Text
+  legacySourceId     Int?                 @unique(map: "stock_items_legacy_uq") @map("legacy_source_id")
+  createdAt          DateTime             @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt          DateTime             @updatedAt @map("updated_at") @db.DateTime(3)
+  createdBy          String               @map("created_by") @db.VarChar(36)
+  updatedBy          String               @map("updated_by") @db.VarChar(36)
+  mainLocation       InventoryLocation?   @relation("StockItemMainLocation", fields: [mainLocationId], references: [id], onDelete: SetNull)
+  locations          StockItemLocation[]
+  balances           InventoryBalance[]
+  documentLines      InventoryDocumentLine[]
+  movements          InventoryMovement[]
+  countLines         StockCountLine[]
+  @@index([name], map: "stock_items_name_idx")
+  @@index([category], map: "stock_items_category_idx")
+  @@index([active], map: "stock_items_active_idx")
+  @@map("stock_items")
+}
+
+model InventoryLocation {
+  id                   String                    @id @default(uuid()) @db.VarChar(36)
+  code                 String                    @unique(map: "inventory_locations_code_uq") @db.VarChar(80)
+  name                 String                    @db.VarChar(190)
+  plant                String?                   @db.VarChar(120)
+  warehouse             String?                  @db.VarChar(120)
+  zone                  String?                  @db.VarChar(120)
+  rack                  String?                  @db.VarChar(120)
+  shelf                 String?                  @db.VarChar(120)
+  bin                   String?                  @db.VarChar(120)
+  responsiblePersonId   String?                  @map("responsible_person_id") @db.VarChar(36)
+  description           String?                  @db.Text
+  active                Boolean                   @default(true)
+  legacySourceId        Int?                      @unique(map: "inventory_locations_legacy_uq") @map("legacy_source_id")
+  createdAt             DateTime                  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt             DateTime                  @updatedAt @map("updated_at") @db.DateTime(3)
+  createdBy             String                    @map("created_by") @db.VarChar(36)
+  updatedBy             String                    @map("updated_by") @db.VarChar(36)
+  mainStockItems        StockItem[]               @relation("StockItemMainLocation")
+  stockItems             StockItemLocation[]
+  balances               InventoryBalance[]
+  sourceMovements        InventoryMovement[]      @relation("InventoryMovementSourceLocation")
+  destinationMovements   InventoryMovement[]      @relation("InventoryMovementDestinationLocation")
+  movements              InventoryMovement[]      @relation("InventoryMovementLocation")
+  sourceLines             InventoryDocumentLine[] @relation("InventoryDocumentLineSource")
+  destinationLines        InventoryDocumentLine[] @relation("InventoryDocumentLineDestination")
+  countLines              StockCountLine[]
+  @@index([plant, warehouse, zone, rack, shelf, bin], map: "inventory_locations_tree_idx")
+  @@index([active], map: "inventory_locations_active_idx")
+  @@map("inventory_locations")
+}
+
+model StockItemLocation {
+  id          String             @id @default(uuid()) @db.VarChar(36)
+  stockItemId String             @map("stock_item_id") @db.VarChar(36)
+  locationId  String             @map("location_id") @db.VarChar(36)
+  createdAt   DateTime           @default(now()) @map("created_at") @db.DateTime(3)
+  stockItem   StockItem          @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  location    InventoryLocation  @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  @@unique([stockItemId, locationId], map: "stock_item_locations_uq")
+  @@index([locationId], map: "stock_item_locations_location_idx")
+  @@map("stock_item_locations")
+}
+
+model InventoryBalance {
+  id                   String             @id @default(uuid()) @db.VarChar(36)
+  stockItemId          String             @map("stock_item_id") @db.VarChar(36)
+  locationId           String             @map("location_id") @db.VarChar(36)
+  quantityOnHand       Decimal            @default(0) @map("quantity_on_hand") @db.Decimal(20, 6)
+  reservedQuantity      Decimal            @default(0) @map("reserved_quantity") @db.Decimal(20, 6)
+  movingAverageCost    Decimal            @default(0) @map("moving_average_cost") @db.Decimal(20, 6)
+  lastMovementDate     DateTime?          @map("last_movement_date") @db.DateTime(3)
+  lastCountDate        DateTime?          @map("last_count_date") @db.DateTime(3)
+  createdAt            DateTime           @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt            DateTime           @updatedAt @map("updated_at") @db.DateTime(3)
+  stockItem            StockItem          @relation(fields: [stockItemId], references: [id], onDelete: Cascade)
+  location             InventoryLocation  @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  @@unique([stockItemId, locationId], map: "inventory_balances_item_location_uq")
+  @@index([locationId], map: "inventory_balances_location_idx")
+  @@map("inventory_balances")
+}
+
+model Vendor {
+  id                  String                 @id @default(uuid()) @db.VarChar(36)
+  code                String                 @unique(map: "vendors_code_uq") @db.VarChar(80)
+  name                String                 @db.VarChar(190)
+  taxId               String?                @map("tax_id") @db.VarChar(80)
+  address             String?                @db.Text
+  country             String?                @db.VarChar(100)
+  province            String?                @db.VarChar(120)
+  phone               String?                @db.VarChar(80)
+  email               String?                @db.VarChar(190)
+  website             String?                @db.VarChar(255)
+  paymentTerms        String?                @map("payment_terms") @db.VarChar(120)
+  deliveryTerms       String?                @map("delivery_terms") @db.VarChar(120)
+  leadTime            Int?                   @map("lead_time")
+  preferredVendor     Boolean                @default(false) @map("preferred_vendor")
+  active              Boolean                @default(true)
+  remark              String?                @db.Text
+  legacySourceId      Int?                   @unique(map: "vendors_legacy_uq") @map("legacy_source_id")
+  createdAt           DateTime               @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt           DateTime               @updatedAt @map("updated_at") @db.DateTime(3)
+  createdBy           String                 @map("created_by") @db.VarChar(36)
+  updatedBy           String                 @map("updated_by") @db.VarChar(36)
+  contacts            VendorContact[]
+  rating              VendorRating?
+  ratingHistory       VendorRatingHistory[]
+  documentLines       InventoryDocumentLine[]
+  movements           InventoryMovement[]
+  @@index([name], map: "vendors_name_idx")
+  @@index([active], map: "vendors_active_idx")
+  @@map("vendors")
+}
+
+model VendorContact {
+  id              String   @id @default(uuid()) @db.VarChar(36)
+  vendorId        String   @map("vendor_id") @db.VarChar(36)
+  name            String   @db.VarChar(160)
+  position        String?  @db.VarChar(120)
+  department      String?  @db.VarChar(120)
+  phone           String?  @db.VarChar(80)
+  mobile          String?  @db.VarChar(80)
+  email           String?  @db.VarChar(190)
+  lineId          String?  @map("line_id") @db.VarChar(80)
+  primaryContact  Boolean  @default(false) @map("primary_contact")
+  active          Boolean  @default(true)
+  remark          String?  @db.Text
+  createdAt       DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+  vendor          Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  @@index([vendorId, active], map: "vendor_contacts_vendor_idx")
+  @@map("vendor_contacts")
+}
+
+model VendorRating {
+  id                     String    @id @default(uuid()) @db.VarChar(36)
+  vendorId               String    @unique(map: "vendor_ratings_vendor_uq") @map("vendor_id") @db.VarChar(36)
+  calculatedScore        Decimal?  @map("calculated_score") @db.Decimal(6, 2)
+  manualScore            Decimal?  @map("manual_score") @db.Decimal(6, 2)
+  finalScore             Decimal?  @map("final_score") @db.Decimal(6, 2)
+  ratingGrade            String?   @map("rating_grade") @db.VarChar(2)
+  lastCalculatedDate     DateTime? @map("last_calculated_date") @db.DateTime(3)
+  manualAdjustmentReason String?   @map("manual_adjustment_reason") @db.Text
+  adjustedBy             String?   @map("adjusted_by") @db.VarChar(36)
+  adjustedAt             DateTime? @map("adjusted_at") @db.DateTime(3)
+  vendor                 Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  @@map("vendor_ratings")
+}
+
+model VendorRatingHistory {
+  id             String    @id @default(uuid()) @db.VarChar(36)
+  vendorId       String    @map("vendor_id") @db.VarChar(36)
+  calculatedScore Decimal? @map("calculated_score") @db.Decimal(6, 2)
+  manualScore     Decimal? @map("manual_score") @db.Decimal(6, 2)
+  finalScore      Decimal? @map("final_score") @db.Decimal(6, 2)
+  ratingGrade    String?   @map("rating_grade") @db.VarChar(2)
+  reason          String?   @db.Text
+  changedBy      String?   @map("changed_by") @db.VarChar(36)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  vendor         Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  @@index([vendorId, createdAt], map: "vendor_rating_history_idx")
+  @@map("vendor_rating_history")
+}
+
+model InventoryDocument {
+  id                    String                  @id @default(uuid()) @db.VarChar(36)
+  documentType          InventoryDocumentType   @map("document_type")
+  documentNumber        String                  @unique(map: "inventory_documents_number_uq") @map("document_number") @db.VarChar(80)
+  documentDate          DateTime                @map("document_date") @db.DateTime(3)
+  siteId                String?                 @map("site_id") @db.VarChar(36)
+  requesterId           String                  @map("requester_id") @db.VarChar(36)
+  departmentId          String?                 @map("department_id") @db.VarChar(36)
+  purpose               String?                 @db.Text
+  referenceWorkOrderId  String?                 @map("reference_work_order_id") @db.VarChar(36)
+  referenceNotificationId String?               @map("reference_notification_id") @db.VarChar(36)
+  status                InventoryDocumentStatus @default(DRAFT)
+  currentApprovalStep  InventoryApprovalStep?  @map("current_approval_step")
+  remark                String?                 @db.Text
+  submittedAt          DateTime?               @map("submitted_at") @db.DateTime(3)
+  postedAt             DateTime?               @map("posted_at") @db.DateTime(3)
+  postedBy             String?                 @map("posted_by") @db.VarChar(36)
+  postingTransactionId  String?                 @unique(map: "inventory_documents_posting_uq") @map("posting_transaction_id") @db.VarChar(36)
+  createdAt             DateTime                @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt             DateTime                @updatedAt @map("updated_at") @db.DateTime(3)
+  createdBy             String                  @map("created_by") @db.VarChar(36)
+  updatedBy             String                  @map("updated_by") @db.VarChar(36)
+  lines                 InventoryDocumentLine[]
+  approvals             InventoryApproval[]
+  attachments           InventoryDocumentAttachment[]
+  movements             InventoryMovement[]
+  @@index([status, currentApprovalStep], map: "inventory_documents_workflow_idx")
+  @@index([requesterId, createdAt], map: "inventory_documents_requester_idx")
+  @@index([documentType, documentDate], map: "inventory_documents_type_date_idx")
+  @@map("inventory_documents")
+}
+
+model InventoryDocumentLine {
+  id                    String              @id @default(uuid()) @db.VarChar(36)
+  documentId            String              @map("document_id") @db.VarChar(36)
+  lineNumber            Int                 @map("line_number")
+  stockItemId           String              @map("stock_item_id") @db.VarChar(36)
+  sourceLocationId      String?             @map("source_location_id") @db.VarChar(36)
+  destinationLocationId String?             @map("destination_location_id") @db.VarChar(36)
+  requestedQuantity     Decimal             @map("requested_quantity") @db.Decimal(20, 6)
+  approvedQuantity      Decimal?            @map("approved_quantity") @db.Decimal(20, 6)
+  rejectedQuantity      Decimal             @default(0) @map("rejected_quantity") @db.Decimal(20, 6)
+  unit                  String              @db.VarChar(45)
+  unitCost              Decimal             @default(0) @map("unit_cost") @db.Decimal(20, 6)
+  totalAmount           Decimal             @default(0) @map("total_amount") @db.Decimal(20, 6)
+  vendorId              String?             @map("vendor_id") @db.VarChar(36)
+  purchaseOrderReference String?            @map("purchase_order_reference") @db.VarChar(120)
+  expectedDeliveryDate  DateTime?           @map("expected_delivery_date") @db.DateTime(3)
+  actualDeliveryDate    DateTime?           @map("actual_delivery_date") @db.DateTime(3)
+  workOrderId           String?             @map("work_order_id") @db.VarChar(36)
+  jobStepId             String?             @map("job_step_id") @db.VarChar(36)
+  sourceReceiptLineId   String?             @map("source_receipt_line_id") @db.VarChar(36)
+  remark                String?             @db.Text
+  document              InventoryDocument  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  stockItem             StockItem           @relation(fields: [stockItemId], references: [id])
+  sourceLocation        InventoryLocation?  @relation("InventoryDocumentLineSource", fields: [sourceLocationId], references: [id])
+  destinationLocation   InventoryLocation?  @relation("InventoryDocumentLineDestination", fields: [destinationLocationId], references: [id])
+  vendor                Vendor?             @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  sourceReceiptLine     InventoryDocumentLine? @relation("InventoryDocumentLineReceiptSource", fields: [sourceReceiptLineId], references: [id], onDelete: SetNull)
+  issueLinesFromReceipt InventoryDocumentLine[] @relation("InventoryDocumentLineReceiptSource")
+  sourceReceiptMovements InventoryMovement[] @relation("InventoryMovementReceiptSource")
+  @@unique([documentId, lineNumber], map: "inventory_document_lines_number_uq")
+  @@index([stockItemId], map: "inventory_document_lines_item_idx")
+  @@index([sourceReceiptLineId], map: "inventory_document_lines_receipt_source_idx")
+  @@map("inventory_document_lines")
+}
+
+model InventoryDocumentAttachment {
+  id           String             @id @default(uuid()) @db.VarChar(36)
+  documentId   String             @map("document_id") @db.VarChar(36)
+  attachmentId String             @map("attachment_id") @db.VarChar(36)
+  createdAt    DateTime           @default(now()) @map("created_at") @db.DateTime(3)
+  document     InventoryDocument  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  @@unique([documentId, attachmentId], map: "inventory_document_attachments_uq")
+  @@index([attachmentId], map: "inventory_document_attachments_attachment_idx")
+  @@map("inventory_document_attachments")
+}
+
+model InventoryApproval {
+  id            String                  @id @default(uuid()) @db.VarChar(36)
+  documentId    String?                 @map("document_id") @db.VarChar(36)
+  stockCountId  String?                 @map("stock_count_id") @db.VarChar(36)
+  step          InventoryApprovalStep
+  sequence      Int
+  status        InventoryApprovalStatus @default(PENDING)
+  assignedRole  String                  @map("assigned_role") @db.VarChar(80)
+  assignedTo    String?                 @map("assigned_to") @db.VarChar(36)
+  requestedBy   String                  @map("requested_by") @db.VarChar(36)
+  requestedAt   DateTime                @default(now()) @map("requested_at") @db.DateTime(3)
+  decisionBy    String?                 @map("decision_by") @db.VarChar(36)
+  decisionComment String?               @map("decision_comment") @db.Text
+  decidedAt     DateTime?               @map("decided_at") @db.DateTime(3)
+  round         Int                     @default(1)
+  document      InventoryDocument?      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  stockCount    StockCount?             @relation(fields: [stockCountId], references: [id], onDelete: Cascade)
+  @@index([assignedRole, status], map: "inventory_approvals_role_status_idx")
+  @@index([requestedBy, requestedAt], map: "inventory_approvals_requester_idx")
+  @@unique([documentId, step, round], map: "inventory_approvals_document_step_uq")
+  @@unique([stockCountId, step, round], map: "inventory_approvals_count_step_uq")
+  @@map("inventory_approvals")
+}
+
+model InventoryMovement {
+  id                    String                 @id @default(uuid()) @db.VarChar(36)
+  movementType          InventoryMovementType  @map("movement_type")
+  documentId            String?                @map("document_id") @db.VarChar(36)
+  documentNumber        String?                @map("document_number") @db.VarChar(80)
+  lineId                String?                @map("line_id") @db.VarChar(36)
+  stockItemId           String                 @map("stock_item_id") @db.VarChar(36)
+  locationId            String                 @map("location_id") @db.VarChar(36)
+  sourceLocationId      String?                @map("source_location_id") @db.VarChar(36)
+  destinationLocationId String?                @map("destination_location_id") @db.VarChar(36)
+  quantityIn            Decimal                @default(0) @map("quantity_in") @db.Decimal(20, 6)
+  quantityOut           Decimal               @default(0) @map("quantity_out") @db.Decimal(20, 6)
+  quantityBefore        Decimal                @map("quantity_before") @db.Decimal(20, 6)
+  quantityAfter         Decimal                @map("quantity_after") @db.Decimal(20, 6)
+  unitCost              Decimal                @map("unit_cost") @db.Decimal(20, 6)
+  amountIn              Decimal                @default(0) @map("amount_in") @db.Decimal(20, 6)
+  amountOut             Decimal                @default(0) @map("amount_out") @db.Decimal(20, 6)
+  valueBefore           Decimal                @map("value_before") @db.Decimal(20, 6)
+  valueAfter            Decimal                @map("value_after") @db.Decimal(20, 6)
+  movingAverageCostBefore Decimal             @map("moving_average_cost_before") @db.Decimal(20, 6)
+  movingAverageCostAfter  Decimal             @map("moving_average_cost_after") @db.Decimal(20, 6)
+  vendorId              String?                @map("vendor_id") @db.VarChar(36)
+  workOrderId           String?                @map("work_order_id") @db.VarChar(36)
+  stockCountId          String?                @map("stock_count_id") @db.VarChar(36)
+  sourceReceiptLineId   String?                @map("source_receipt_line_id") @db.VarChar(36)
+  postedBy              String                 @map("posted_by") @db.VarChar(36)
+  postedAt              DateTime               @map("posted_at") @db.DateTime(3)
+  stockItem             StockItem              @relation(fields: [stockItemId], references: [id])
+  document              InventoryDocument?    @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  location              InventoryLocation     @relation("InventoryMovementLocation", fields: [locationId], references: [id])
+  sourceLocation        InventoryLocation?    @relation("InventoryMovementSourceLocation", fields: [sourceLocationId], references: [id])
+  destinationLocation   InventoryLocation?    @relation("InventoryMovementDestinationLocation", fields: [destinationLocationId], references: [id])
+  vendor                Vendor?               @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  stockCount            StockCount?           @relation(fields: [stockCountId], references: [id], onDelete: SetNull)
+  sourceReceiptLine     InventoryDocumentLine? @relation("InventoryMovementReceiptSource", fields: [sourceReceiptLineId], references: [id], onDelete: SetNull)
+  @@index([stockItemId, locationId, postedAt], map: "inventory_movements_item_location_idx")
+  @@index([documentId], map: "inventory_movements_document_idx")
+  @@index([movementType, postedAt], map: "inventory_movements_type_date_idx")
+  @@index([sourceReceiptLineId], map: "inventory_movements_receipt_source_idx")
+  @@map("inventory_movements")
+}
+
+model StockCount {
+  id                    String          @id @default(uuid()) @db.VarChar(36)
+  countNumber           String          @unique(map: "stock_counts_number_uq") @map("count_number") @db.VarChar(80)
+  countDate             DateTime        @map("count_date") @db.DateTime(3)
+  cutoffAt              DateTime        @map("cutoff_at") @db.DateTime(3)
+  siteId                String?         @map("site_id") @db.VarChar(36)
+  locationId            String?         @map("location_id") @db.VarChar(36)
+  countType             StockCountType  @map("count_type")
+  responsiblePersonId   String?         @map("responsible_person_id") @db.VarChar(36)
+  status                StockCountStatus @default(DRAFT)
+  remark                String?         @db.Text
+  submittedAt           DateTime?       @map("submitted_at") @db.DateTime(3)
+  approvedAt            DateTime?       @map("approved_at") @db.DateTime(3)
+  postedAt              DateTime?       @map("posted_at") @db.DateTime(3)
+  postedBy              String?         @map("posted_by") @db.VarChar(36)
+  createdAt             DateTime        @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt             DateTime        @updatedAt @map("updated_at") @db.DateTime(3)
+  createdBy             String          @map("created_by") @db.VarChar(36)
+  updatedBy             String          @map("updated_by") @db.VarChar(36)
+  lines                 StockCountLine[]
+  approvals             InventoryApproval[]
+  movements             InventoryMovement[]
+  @@index([status, cutoffAt], map: "stock_counts_workflow_idx")
+  @@map("stock_counts")
+}
+
+model StockCountLine {
+  id               String            @id @default(uuid()) @db.VarChar(36)
+  stockCountId     String            @map("stock_count_id") @db.VarChar(36)
+  stockItemId      String            @map("stock_item_id") @db.VarChar(36)
+  locationId       String            @map("location_id") @db.VarChar(36)
+  systemQuantity   Decimal           @map("system_quantity") @db.Decimal(20, 6)
+  countedQuantity  Decimal?          @map("counted_quantity") @db.Decimal(20, 6)
+  varianceQuantity Decimal?          @map("variance_quantity") @db.Decimal(20, 6)
+  unitCost         Decimal           @map("unit_cost") @db.Decimal(20, 6)
+  varianceAmount   Decimal?          @map("variance_amount") @db.Decimal(20, 6)
+  remark           String?           @db.Text
+  stockCount      StockCount        @relation(fields: [stockCountId], references: [id], onDelete: Cascade)
+  stockItem       StockItem         @relation(fields: [stockItemId], references: [id])
+  location        InventoryLocation @relation(fields: [locationId], references: [id])
+  @@unique([stockCountId, stockItemId, locationId], map: "stock_count_lines_item_location_uq")
+  @@map("stock_count_lines")
+}
+
+model InventoryDocumentSequence {
+  id          String   @id @default(uuid()) @db.VarChar(36)
+  sequenceKey String   @unique(map: "inventory_document_sequences_key_uq") @map("sequence_key") @db.VarChar(80)
+  prefix      String   @db.VarChar(30)
+  nextNumber  Int      @default(1) @map("next_number")
+  padding     Int      @default(5)
+  active      Boolean  @default(true)
+  updatedBy   String?  @map("updated_by") @db.VarChar(36)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+  @@map("inventory_document_sequences")
+}
+
+model InventorySetting {
+  id          String   @id @default(uuid()) @db.VarChar(36)
+  settingKey  String   @unique(map: "inventory_settings_key_uq") @map("setting_key") @db.VarChar(120)
+  value       String   @db.Text
+  description String?  @db.Text
+  updatedBy   String?  @map("updated_by") @db.VarChar(36)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+  @@map("inventory_settings")
 }

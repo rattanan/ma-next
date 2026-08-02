@@ -13,7 +13,7 @@ import {
   varchar,
 } from "drizzle-orm/mysql-core";
 
-export const roleValues = ["ADMIN", "DATA_SOURCE_CREATOR", "DASHBOARD_CREATOR", "VIEWER", "OPERATOR", "MAINTENANCE_MANAGER", "TECHNICIAN"] as const;
+export const roleValues = ["ADMIN", "DATA_SOURCE_CREATOR", "DASHBOARD_CREATOR", "VIEWER", "OPERATOR", "MAINTENANCE", "MAINTENANCE_MANAGER", "WAREHOUSE_MANAGER", "PLANT_MANAGER", "TECHNICIAN"] as const;
 export const statusValues = ["ACTIVE", "INACTIVE", "LOCKED", "ARCHIVED"] as const;
 export type Role = (typeof roleValues)[number];
 export type UserStatus = (typeof statusValues)[number];
@@ -159,7 +159,7 @@ export const verificationDecisionValues = ["VERIFIED", "RETURNED"] as const;
 export const managerDecisionValues = ["PENDING", "APPROVED", "RETURNED"] as const;
 export const recheckStatusValues = ["OPEN", "IN_PROGRESS", "RESUBMITTED", "APPROVED", "RETURNED_AGAIN", "CANCELLED"] as const;
 export const operatorDecisionValues = ["ACCEPTED", "REJECTED"] as const;
-export const approvalTypeValues = ["NOTIFICATION", "WORK_ORDER", "WORK_COMPLETION", "MATERIAL_REQUEST", "PURCHASE_REQUEST", "PREVENTIVE_MAINTENANCE"] as const;
+export const approvalTypeValues = ["NOTIFICATION", "WORK_ORDER", "WORK_COMPLETION", "MATERIAL_REQUEST", "PURCHASE_REQUEST", "PREVENTIVE_MAINTENANCE", "INVENTORY"] as const;
 export const approvalStatusValues = ["PENDING", "IN_REVIEW", "APPROVED", "RETURNED", "REJECTED", "CANCELLED"] as const;
 export const approvalActionValues = ["SUBMITTED", "OPENED", "APPROVED", "RETURNED", "REJECTED", "RESUBMITTED", "CANCELLED"] as const;
 

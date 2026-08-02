@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getServerEnv } from "@/lib/env";
@@ -8,7 +9,20 @@ import { attachmentMetadataSchema, validateAttachmentSize } from "./validation";
 import { HttpError } from "@/lib/http";
 
 export function listAttachments(entityType: string, entityId: string) { return prisma.attachment.findMany({ where: { entityType, entityId, deletedAt: null }, orderBy: { createdAt: "desc" } }); }
-export function registerAttachment(input: z.infer<typeof attachmentMetadataSchema>, actor: AuthenticatedUser, meta: RequestMeta) { validateAttachmentSize(input.byteSize, getServerEnv().MAX_ATTACHMENT_BYTES); return prisma.$transaction(async (tx) => { const record = await tx.attachment.create({ data: { ...input, checksum: input.checksum || null, driver: getServerEnv().ATTACHMENT_DRIVER, uploadedBy: actor.id } }); await writeAudit(tx, { action: "ATTACHMENT_REGISTERED", category: "FILES", targetType: input.entityType, targetId: input.entityId, targetName: input.originalName, description: `Registered attachment ${input.originalName}`, newValues: { id: record.id, contentType: record.contentType, byteSize: record.byteSize } }, actor, meta); return record; }); }
+export function registerAttachment(input: z.infer<typeof attachmentMetadataSchema>, actor: AuthenticatedUser, meta: RequestMeta) {
+  validateAttachmentSize(input.byteSize, getServerEnv().MAX_ATTACHMENT_BYTES);
+  return prisma.$transaction(async (tx) => {
+    if (input.entityType === "INVENTORY_DOCUMENT") {
+      const document = await tx.inventoryDocument.findUnique({ where: { id: input.entityId } });
+      if (!document) throw new HttpError(404, "Inventory document not found", "INVENTORY_DOCUMENT_NOT_FOUND");
+      if (document.requesterId !== actor.id && !actor.permissions.includes("MANAGE_INVENTORY") && actor.role !== "ADMIN" && !actor.roleCodes?.includes("WAREHOUSE_MANAGER") && !actor.roleCodes?.includes("MAINTENANCE_MANAGER")) throw new HttpError(403, "You do not have permission to attach files to this document", "FORBIDDEN");
+    }
+    const record = await tx.attachment.create({ data: { ...input, checksum: input.checksum || null, driver: getServerEnv().ATTACHMENT_DRIVER, uploadedBy: actor.id } });
+    if (input.entityType === "INVENTORY_DOCUMENT") await tx.inventoryDocumentAttachment.create({ data: { id: randomUUID(), documentId: input.entityId, attachmentId: record.id } });
+    await writeAudit(tx, { action: "ATTACHMENT_REGISTERED", category: "FILES", targetType: input.entityType, targetId: input.entityId, targetName: input.originalName, description: `Registered attachment ${input.originalName}`, newValues: { id: record.id, contentType: record.contentType, byteSize: record.byteSize } }, actor, meta);
+    return record;
+  });
+}
 
 export function updateAssetAttachmentNote(id: string, note: string | null, actor: AuthenticatedUser, meta: RequestMeta) {
   return prisma.$transaction(async (tx) => {

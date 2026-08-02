@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { approvalHistory, approvalTasks, assets, attachments, auditLogs, maintenanceNotifications, notificationEvents, users } from "@/lib/db/schema";
 import { HttpError } from "@/lib/http";
 import { canAccessScope } from "@/lib/maintenance/authorization";
+import { getInventoryApprovalDetail, listInventoryApprovals } from "@/lib/inventory/service";
 import type { approvalQuerySchema } from "./validation";
 
 type ApprovalQuery = z.infer<typeof approvalQuerySchema>;
@@ -16,13 +17,14 @@ function canAccessTask(actor: AuthenticatedUser, task: typeof approvalTasks.$inf
 }
 
 export async function pendingApprovalCount(actor: AuthenticatedUser) {
-  if (!actor.permissions.includes("NOTIFICATION_REVIEW")) return 0;
-  const rows = await db.select().from(approvalTasks).where(inArray(approvalTasks.status, activeStatuses));
-  return rows.filter((task) => canAccessTask(actor, task)).length;
+  const maintenanceCount = actor.permissions.includes("NOTIFICATION_REVIEW") ? (await db.select().from(approvalTasks).where(inArray(approvalTasks.status, activeStatuses))).filter((task) => canAccessTask(actor, task)).length : 0;
+  const inventoryCount = actor.permissions.includes("VIEW_APPROVAL_CENTER") ? (await listInventoryApprovals(actor, { tab: "pending", page: 1, pageSize: 1000 })).stats.pending : 0;
+  return maintenanceCount + inventoryCount;
 }
 
 export async function listApprovals(query: ApprovalQuery, actor: AuthenticatedUser) {
-  if (!actor.permissions.includes("NOTIFICATION_REVIEW")) throw new HttpError(403, "Approval Center permission is required", "FORBIDDEN");
+  if (!actor.permissions.includes("NOTIFICATION_REVIEW") && !actor.permissions.includes("VIEW_APPROVAL_CENTER")) throw new HttpError(403, "Approval Center permission is required", "FORBIDDEN");
+  if (query.type === "INVENTORY") return listInventoryApprovals(actor, { tab: query.tab, q: query.search, page: query.page, pageSize: query.pageSize });
   const rows = await db.select().from(approvalTasks).orderBy(query.sort === "newest" ? desc(approvalTasks.requestedAt) : asc(approvalTasks.requestedAt));
   const requesterIds = [...new Set(rows.map((row) => row.requestedById))];
   const requesters = requesterIds.length ? await db.select({ id: users.id, fullName: users.fullName }).from(users).where(inArray(users.id, requesterIds)) : [];
@@ -41,15 +43,18 @@ export async function listApprovals(query: ApprovalQuery, actor: AuthenticatedUs
     const haystack = `${task.referenceNumber} ${task.title} ${requesterMap.get(task.requestedById) ?? ""}`.toLowerCase();
     return !query.search || haystack.includes(query.search.toLowerCase());
   });
+  const inventory = actor.permissions.includes("VIEW_APPROVAL_CENTER") ? await listInventoryApprovals(actor, { tab: query.tab, q: query.search, page: 1, pageSize: 1000 }) : { items: [], stats: { pending: 0, inReview: 0, overdue: 0, approvedToday: 0 } };
+  const merged = [...filtered.map((task) => ({ ...task, requestedByName: requesterMap.get(task.requestedById) ?? "Unknown user", waitingMinutes: Math.max(0, Math.floor((Date.now() - task.requestedAt.getTime()) / 60000)) })), ...inventory.items];
+  const sorted = merged.sort((a, b) => query.sort === "newest" ? new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime() : new Date(a.requestedAt).getTime() - new Date(b.requestedAt).getTime());
   const start = (query.page - 1) * query.pageSize;
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  return { items: filtered.slice(start, start + query.pageSize).map((task) => ({ ...task, requestedByName: requesterMap.get(task.requestedById) ?? "Unknown user", waitingMinutes: Math.max(0, Math.floor((Date.now() - task.requestedAt.getTime()) / 60000)) })), total: filtered.length, page: query.page, pageSize: query.pageSize, pages: Math.max(1, Math.ceil(filtered.length / query.pageSize)), stats: { pending: accessible.filter((task) => task.status === "PENDING").length, inReview: accessible.filter((task) => task.status === "IN_REVIEW").length, overdue: accessible.filter((task) => activeStatuses.includes(task.status as (typeof activeStatuses)[number]) && Date.now() - task.requestedAt.getTime() >= 86_400_000).length, approvedToday: accessible.filter((task) => task.status === "APPROVED" && task.completedAt && task.completedAt >= today).length } };
+  return { items: sorted.slice(start, start + query.pageSize), total: sorted.length, page: query.page, pageSize: query.pageSize, pages: Math.max(1, Math.ceil(sorted.length / query.pageSize)), stats: { pending: accessible.filter((task) => task.status === "PENDING").length + inventory.stats.pending, inReview: accessible.filter((task) => task.status === "IN_REVIEW").length + inventory.stats.inReview, overdue: accessible.filter((task) => activeStatuses.includes(task.status as (typeof activeStatuses)[number]) && Date.now() - task.requestedAt.getTime() >= 86_400_000).length + inventory.stats.overdue, approvedToday: accessible.filter((task) => task.status === "APPROVED" && task.completedAt && task.completedAt >= today).length + inventory.stats.approvedToday } };
 }
 
 export async function getApprovalDetail(id: string, actor: AuthenticatedUser) {
-  if (!actor.permissions.includes("NOTIFICATION_REVIEW")) throw new HttpError(403, "Approval Center permission is required", "FORBIDDEN");
+  if (!actor.permissions.includes("NOTIFICATION_REVIEW") && !actor.permissions.includes("VIEW_APPROVAL_CENTER")) throw new HttpError(403, "Approval Center permission is required", "FORBIDDEN");
   const task = (await db.select().from(approvalTasks).where(eq(approvalTasks.id, id)).limit(1))[0];
-  if (!task) throw new HttpError(404, "Approval task not found", "APPROVAL_NOT_FOUND");
+  if (!task) return getInventoryApprovalDetail(id, actor);
   if (!canAccessTask(actor, task)) throw new HttpError(403, "Approval task is outside your assignment or scope", "SCOPE_FORBIDDEN");
   const notification = task.approvalType === "NOTIFICATION" ? (await db.select().from(maintenanceNotifications).where(eq(maintenanceNotifications.id, task.referenceId)).limit(1))[0] : null;
   const asset = notification ? (await db.select({ id: assets.id, code: assets.code, name: assets.name, location: assets.location, criticality: assets.criticality, status: assets.status }).from(assets).where(eq(assets.id, notification.assetId)).limit(1))[0] : null;
