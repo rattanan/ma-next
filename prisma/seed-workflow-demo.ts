@@ -3,7 +3,7 @@ import { hash } from "bcryptjs";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { PrismaClient } from "../generated/prisma/client";
 
-function options(url: string) { const value = new URL(url); return { host: value.hostname, port: Number(value.port || 3306), user: decodeURIComponent(value.username), password: decodeURIComponent(value.password), database: value.pathname.replace(/^\//, ""), connectionLimit: 5 }; }
+function options(url: string) { const value = new URL(url); return { host: value.hostname, port: Number(value.port || 3306), user: decodeURIComponent(value.username), password: decodeURIComponent(value.password), database: value.pathname.replace(/^\//, ""), charset: "utf8mb4", collation: "utf8mb4_unicode_ci", connectionLimit: 5 }; }
 const demoUsers = [
   ["operator.demo@example.test", "operator.demo", "Operator User", "OPERATOR"],
   ["manager.demo@example.test", "manager.demo", "Maintenance Manager User", "MAINTENANCE_MANAGER"],

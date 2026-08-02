@@ -20,7 +20,7 @@ const workflowRoles: Record<string, readonly string[]> = {
   TECHNICIAN: ["VIEW_MAINTENANCE", "ASSET_READ", "VIEW_ATTACHMENTS", "MANAGE_ATTACHMENTS", "NOTIFICATION_CREATE", "NOTIFICATION_EDIT_OWN_DRAFT", "NOTIFICATION_SUBMIT", "NOTIFICATION_VIEW", "WORK_ORDER_VIEW", "WORK_ORDER_ACCEPT_ASSIGNMENT", "WORK_ORDER_START", "WORK_ORDER_UPDATE_PROGRESS", "WORK_ORDER_SUBMIT_COMPLETION", "AUDIT_VIEW"],
 };
 
-function options(url: string) { const value = new URL(url); return { host: value.hostname, port: Number(value.port || 3306), user: decodeURIComponent(value.username), password: decodeURIComponent(value.password), database: value.pathname.replace(/^\//, ""), connectionLimit: 5 }; }
+function options(url: string) { const value = new URL(url); return { host: value.hostname, port: Number(value.port || 3306), user: decodeURIComponent(value.username), password: decodeURIComponent(value.password), database: value.pathname.replace(/^\//, ""), charset: "utf8mb4", collation: "utf8mb4_unicode_ci", connectionLimit: 5 }; }
 async function main() {
   const url = process.env.DATABASE_URL; if (!url) throw new Error("DATABASE_URL is required");
   const prisma = new PrismaClient({ adapter: new PrismaMariaDb(options(url)) });

@@ -12,6 +12,8 @@ function adapterFromUrl(url: string) {
     user: decodeURIComponent(parsed.username),
     password: decodeURIComponent(parsed.password),
     database: parsed.pathname.replace(/^\//, ""),
+    charset: "utf8mb4",
+    collation: "utf8mb4_unicode_ci",
     connectionLimit: 10,
   });
 }
