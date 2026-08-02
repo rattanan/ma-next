@@ -4,12 +4,17 @@ import { HttpError } from "../http";
 
 export type ResourceScope = { organizationId?: string | null; siteId?: string | null; departmentId?: string | null };
 
+export function isAdminActor(actor: Pick<AuthenticatedUser, "role" | "roleCodes">) {
+  return actor.role === "ADMIN" || actor.roleCodes?.includes("ADMIN") === true;
+}
+
 export function requireActorPermission(actor: AuthenticatedUser, permission: Permission) {
-  if (!actor.permissions.includes(permission)) throw new HttpError(403, `Missing permission: ${permission}`, "FORBIDDEN");
+  if (!isAdminActor(actor) && !actor.permissions.includes(permission)) throw new HttpError(403, `Missing permission: ${permission}`, "FORBIDDEN");
 }
 
 export function canAccessScope(actor: AuthenticatedUser, resource: ResourceScope, permission?: Permission) {
-  if (!actor.scopes?.length) return actor.role === "ADMIN";
+  if (isAdminActor(actor)) return true;
+  if (!actor.scopes?.length) return false;
   return actor.scopes.some((scope) => {
     if (permission && !scope.permissions.includes(permission) && scope.roleCode !== actor.role) return false;
     if (scope.scopeType === "GLOBAL") return true;

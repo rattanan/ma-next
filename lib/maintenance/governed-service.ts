@@ -12,7 +12,7 @@ import {
 } from "../db/schema";
 import { HttpError } from "../http";
 import { prisma } from "../prisma";
-import { canAccessScope, requireActorPermission, requireAssignedTechnician, requireOwnerOrScope, requireScope } from "./authorization";
+import { canAccessScope, isAdminActor, requireActorPermission, requireAssignedTechnician, requireOwnerOrScope, requireScope } from "./authorization";
 import { transitionNotification, transitionWorkOrder } from "./workflow";
 import { nextCompletionRevisionNumber } from "./revisions";
 import type {
@@ -50,7 +50,7 @@ async function primaryOrganization(actor: Actor, requested?: string | null) {
   if (requested) { requireScope(actor, { organizationId: requested }, "NOTIFICATION_CREATE"); return requested; }
   const ids = [...new Set((actor.scopes ?? []).map((scope) => scope.organizationId).filter((id): id is string => Boolean(id)))];
   if (ids.length === 1) return ids[0];
-  if ((actor.scopes ?? []).some((scope) => scope.scopeType === "GLOBAL") || actor.role === "ADMIN") {
+  if ((actor.scopes ?? []).some((scope) => scope.scopeType === "GLOBAL") || isAdminActor(actor)) {
     const organizations = await prisma.organization.findMany({ where: { active: true }, select: { id: true }, take: 2 });
     if (organizations.length === 1) return organizations[0].id;
   }

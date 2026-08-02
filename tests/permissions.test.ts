@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { canCreateDashboard, canExecuteWorkOrders, canManageDataSources, canManageUsers, canReviewMaintenance, canVerifyWorkOrders, canViewAuditLogs, hasPermission } from "../lib/auth/permissions";
+import { allPermissions, canCreateDashboard, canExecuteWorkOrders, canManageDataSources, canManageUsers, canReviewMaintenance, canVerifyWorkOrders, canViewAuditLogs, hasPermission } from "../lib/auth/permissions";
 
 describe("role-based access control", () => {
   it("allows administrators to manage users and audit logs", () => { expect(canManageUsers("ADMIN")).toBe(true); expect(canViewAuditLogs("ADMIN")).toBe(true); });
+  it("gives administrators every registered permission", () => { for (const permission of allPermissions) expect(hasPermission("ADMIN", permission)).toBe(true); });
   it("prevents viewers from using admin permissions", () => { expect(canManageUsers("VIEWER")).toBe(false); expect(canViewAuditLogs("VIEWER")).toBe(false); });
   it("prevents dashboard creators from managing data sources", () => expect(canManageDataSources("DASHBOARD_CREATOR")).toBe(false));
   it("prevents data source creators from managing users", () => expect(canManageUsers("DATA_SOURCE_CREATOR")).toBe(false));

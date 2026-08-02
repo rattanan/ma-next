@@ -4,7 +4,7 @@ import type { AuthenticatedUser } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { approvalHistory, approvalTasks, assets, attachments, auditLogs, maintenanceNotifications, notificationEvents, users } from "@/lib/db/schema";
 import { HttpError } from "@/lib/http";
-import { canAccessScope } from "@/lib/maintenance/authorization";
+import { canAccessScope, isAdminActor } from "@/lib/maintenance/authorization";
 import { getInventoryApprovalDetail, listInventoryApprovals } from "@/lib/inventory/service";
 import type { approvalQuerySchema } from "./validation";
 
@@ -12,8 +12,9 @@ type ApprovalQuery = z.infer<typeof approvalQuerySchema>;
 const activeStatuses = ["PENDING", "IN_REVIEW"] as const;
 
 function canAccessTask(actor: AuthenticatedUser, task: typeof approvalTasks.$inferSelect) {
+  const admin = isAdminActor(actor);
   const assigned = task.assignedApproverId === actor.id || Boolean(task.assignedRole && (actor.role === task.assignedRole || actor.roleCodes?.includes(task.assignedRole)));
-  return (actor.role === "ADMIN" || assigned) && (actor.role === "ADMIN" || canAccessScope(actor, task, "NOTIFICATION_REVIEW"));
+  return (admin || assigned) && (admin || canAccessScope(actor, task, "NOTIFICATION_REVIEW"));
 }
 
 export async function pendingApprovalCount(actor: AuthenticatedUser) {

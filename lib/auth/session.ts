@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { roleValues, type Role } from "@/lib/db/schema";
 import { HttpError } from "@/lib/http";
 import { authConfig } from "./config";
-import { rolePermissions, type Permission } from "./permissions";
+import { allPermissions, rolePermissions, type Permission } from "./permissions";
 import type { RequestMeta } from "./request";
 
 export const SESSION_COOKIE = "atlas_session";
@@ -32,7 +32,8 @@ export async function getSessionByToken(token?: string) {
   const operationalRole = activeAssignments.map((assignment) => assignment.role.code).find((code) => roleValues.includes(code as Role));
   const role = (operationalRole ?? (roleValues.includes(row.user.legacyRole as Role) ? row.user.legacyRole : "VIEWER")) as Role;
   const assigned = activeAssignments.flatMap((assignment) => assignment.role.permissions.map((item) => item.permission.code as Permission));
-  const permissions = [...new Set([...rolePermissions[role], ...assigned])];
+  const hasAdminAssignment = role === "ADMIN" || activeAssignments.some((assignment) => assignment.role.code === "ADMIN");
+  const permissions = hasAdminAssignment ? [...allPermissions] : [...new Set([...rolePermissions[role], ...assigned])];
   const scopes = activeAssignments.map((assignment) => ({ roleCode: assignment.role.code, scopeType: assignment.scopeType, organizationId: assignment.organizationId, siteId: assignment.siteId, departmentId: assignment.departmentId, permissions: assignment.role.permissions.map((item) => item.permission.code as Permission) }));
   return { sessionId: row.id, user: { id: row.user.id, fullName: row.user.fullName, username: row.user.username, email: row.user.email, role, roleCodes: [...new Set([role, ...activeAssignments.map((assignment) => assignment.role.code)])], permissions, scopes, mustChangePassword: row.user.mustChangePassword } satisfies AuthenticatedUser, expiresAt: row.expiresAt };
 }
@@ -46,7 +47,7 @@ export async function requireSession(request: NextRequest) {
 }
 export async function requirePermission(request: NextRequest, permission: Permission) {
   const session = await requireSession(request);
-  if (!session.user.permissions.includes(permission)) throw new HttpError(403, "You do not have permission to perform this action", "FORBIDDEN");
+  if (session.user.role !== "ADMIN" && !session.user.roleCodes?.includes("ADMIN") && !session.user.permissions.includes(permission)) throw new HttpError(403, "You do not have permission to perform this action", "FORBIDDEN");
   return session;
 }
 export async function revokeUserSessions(userId: string, exceptSessionId?: string) {
