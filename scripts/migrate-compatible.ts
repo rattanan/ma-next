@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { createHash, randomUUID } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -13,6 +14,13 @@ function compatibleSql(sql: string, version: string) {
 }
 
 const resumableCodes = new Set(["ER_TABLE_EXISTS_ERROR", "ER_DUP_FIELDNAME", "ER_DUP_KEYNAME", "ER_FK_DUP_NAME"]);
+
+function requestedMigrations() {
+  const inline = process.argv.find((argument) => argument.startsWith("--only="));
+  const flagIndex = process.argv.indexOf("--only");
+  const value = inline?.slice("--only=".length) ?? (flagIndex >= 0 ? process.argv[flagIndex + 1] : undefined);
+  return value ? new Set(value.split(",").map((name) => name.trim()).filter(Boolean)) : null;
+}
 
 async function main() {
   const uri = process.env.DATABASE_URL;
@@ -41,7 +49,19 @@ async function main() {
     }
     const root = resolve("prisma/migrations");
     const migrations = (await readdir(root, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-    for (const migrationName of migrations) {
+    const requested = requestedMigrations();
+    const selectedMigrations = requested ? migrations.filter((migrationName) => requested.has(migrationName)) : migrations;
+    if (requested) {
+      const unknown = [...requested].filter((migrationName) => !migrations.includes(migrationName));
+      if (unknown.length) throw new Error(`Unknown targeted migration(s): ${unknown.join(", ")}`);
+      const firstSelectedIndex = Math.min(...selectedMigrations.map((migrationName) => migrations.indexOf(migrationName)));
+      const missingPrerequisites = migrations.slice(0, firstSelectedIndex).filter((migrationName) => !applied.has(migrationName));
+      if (missingPrerequisites.length) throw new Error(`Targeted deployment refused because prerequisite migration(s) are not recorded: ${missingPrerequisites.join(", ")}`);
+      const appliedLater = migrations.slice(firstSelectedIndex + 1).filter((migrationName) => applied.has(migrationName) && !requested.has(migrationName));
+      if (appliedLater.length && selectedMigrations.some((migrationName) => !applied.has(migrationName))) throw new Error(`Targeted deployment refused because a later migration is already recorded: ${appliedLater.join(", ")}`);
+      console.log(`Targeted deployment: ${selectedMigrations.join(", ")}`);
+    }
+    for (const migrationName of selectedMigrations) {
       const sql = await readFile(resolve(root, migrationName, "migration.sql"), "utf8");
       const checksum = createHash("sha256").update(sql).digest("hex");
       const previous = applied.get(migrationName);
@@ -63,7 +83,7 @@ async function main() {
       }
       await connection.execute("INSERT INTO _prisma_migrations (id, checksum, finished_at, migration_name, started_at, applied_steps_count) VALUES (?, ?, NOW(), ?, NOW(), 1)", [randomUUID(), checksum, migrationName]);
     }
-    console.log(`Database migrations are current (${migrations.length} total).`);
+    console.log(`Database migrations are current (${selectedMigrations.length} targeted, ${migrations.length} available).`);
   } finally {
     await connection.query("SELECT RELEASE_LOCK('ma_next_schema_migration')").catch(() => undefined);
     await connection.end();
