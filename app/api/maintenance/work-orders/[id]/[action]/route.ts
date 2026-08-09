@@ -4,7 +4,7 @@ import { getRequestMeta, isSameOrigin } from "@/lib/auth/request";
 import { requirePermission } from "@/lib/auth/session";
 import type { Permission } from "@/lib/auth/permissions";
 import { apiError, HttpError } from "@/lib/http";
-import { addExecutionEntry, addUsedSparePart, addWorkOrderTask, closeWorkOrder, startWorkOrder, submitCompletion, updateWorkOrderTask, verifyCompletion } from "@/lib/maintenance/service";
+import { addExecutionEntry, addUsedSparePart, addWorkOrderTask, closeWorkOrder, requireWorkOrderAccess, startWorkOrder, submitCompletion, updateWorkOrderTask, verifyCompletion } from "@/lib/maintenance/service";
 import { closeSchema, completionSchema, executionEntrySchema, sparePartUsageSchema, taskSchema, taskStatusSchema, verificationSchema } from "@/lib/maintenance/validation";
 
 const permissions: Record<string, Permission> = { start: "EXECUTE_WORK_ORDERS", tasks: "MANAGE_WORK_ORDERS", "task-status": "EXECUTE_WORK_ORDERS", execution: "EXECUTE_WORK_ORDERS", "spare-parts": "EXECUTE_WORK_ORDERS", completion: "EXECUTE_WORK_ORDERS", verification: "VERIFY_WORK_ORDERS", close: "CLOSE_WORK_ORDERS" };
@@ -16,6 +16,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { id, action } = await params; const permission = permissions[action];
     if (!permission) throw new HttpError(404, "Unknown work-order action", "ACTION_NOT_FOUND");
     const session = await requirePermission(request, permission); const body = await request.json().catch(() => ({}));
+    await requireWorkOrderAccess(id, session.user);
     const result = action === "start" ? await startWorkOrder(id, session.user, meta)
       : action === "tasks" ? await addWorkOrderTask(id, taskSchema.parse(body), session.user, meta)
       : action === "task-status" ? await updateWorkOrderTask(id, String(body.taskId ?? ""), taskStatusSchema.parse(body), session.user, meta)

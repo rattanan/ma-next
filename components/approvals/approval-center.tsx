@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { PageContainer, PageHeader } from "@/components/shared/page-header";
+import { statusToneClass } from "@/components/shared/status-badge";
 import { cn } from "@/lib/utils";
 
 type Tab = "pending" | "in-review" | "returned" | "approved" | "rejected" | "all";
@@ -28,7 +29,7 @@ type Detail = { task: Approval & { decisionComment?: string; returnReason?: stri
 const tabs: Array<[Tab, string]> = [["pending", "Pending My Approval"], ["in-review", "In Review"], ["returned", "Returned"], ["approved", "Approved"], ["rejected", "Rejected"], ["all", "All"]];
 const typeLabel = (value: string) => value.replaceAll("_", " ").toLowerCase().replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
 const waiting = (minutes: number) => minutes < 60 ? `${minutes} นาที` : minutes < 1440 ? `${Math.floor(minutes / 60)} ชม.` : `${Math.floor(minutes / 1440)} วัน`;
-const tone = (status: string) => status === "APPROVED" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : status === "REJECTED" ? "border-red-200 bg-red-50 text-red-800" : ["RETURNED", "RETURNED_FOR_REVISION"].includes(status) ? "border-amber-200 bg-amber-50 text-amber-900" : "border-blue-200 bg-blue-50 text-blue-800";
+const tone = statusToneClass;
 
 async function requestJson(url: string, init?: RequestInit) { const response = await fetch(url, init); const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error || "ไม่สามารถดำเนินการได้"); return body; }
 

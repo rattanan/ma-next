@@ -7,6 +7,6 @@ import { listMaintenanceOverview } from "@/lib/maintenance/service";
 
 export async function GET(request: NextRequest) {
   const meta = getRequestMeta(request);
-  try { await requirePermission(request, "VIEW_MAINTENANCE"); return NextResponse.json(await listMaintenanceOverview()); }
+  try { const session = await requirePermission(request, "VIEW_MAINTENANCE"); return NextResponse.json(await listMaintenanceOverview(session.user)); }
   catch (error) { return apiError(error, meta.requestId); }
 }

@@ -25,3 +25,20 @@ The default mapping covers stock items, the Plant/Warehouse/Zone/Rack/Shelf/Bin 
 - Historical receipts, issues and transfers become posted Inventory Documents, lines and immutable `RECEIPT`, `ISSUE`, `TRANSFER_OUT`/`TRANSFER_IN` movement rows. Optional source before/after quantity and moving-average columns can be supplied in the mapping; otherwise the runner uses a zero-based normalized history row and records the source row in the migration log for reconciliation.
 
 Review the summary by entity (`source`, `loaded`, `rejected`) and investigate every rejection before cutover. The script intentionally does not seed sample data.
+
+## Legacy procurement and PO Receipt
+
+Profile the PR/PO/Receipt and approval tables without writing either database:
+
+```bash
+tsx scripts/profile-legacy-procurement.ts
+```
+
+Dry-run the PO header/line mapping from `OLD_DATABASE_URL` to references already loaded in `DEV_DATABASE_URL`:
+
+```bash
+npm run migrate:old-procurement
+npm run migrate:old-procurement -- --execute
+```
+
+The importer discovers the accessible source schema when the database name embedded in the source URL is not accessible. It maps vendors and stock items through `legacy_source_id`, uses stable target IDs, logs rejected references, and writes only when `--execute` is supplied. It does not fabricate a PO for historical warehouse Receipts that have no source PO.

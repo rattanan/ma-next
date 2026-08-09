@@ -5,14 +5,13 @@ import Image from "next/image";
 import { BellRing, Boxes, ClipboardCheck, Plus, Wrench } from "lucide-react";
 import { PageContainer, PageHeader } from "@/components/shared/page-header";
 import { AssetCombobox } from "@/components/shared/asset-combobox";
+import { StatusBadge } from "@/components/shared/status-badge";
 import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
 
-type Role = "ADMIN" | "DATA_SOURCE_CREATOR" | "DASHBOARD_CREATOR" | "VIEWER";
+type Role = "ADMIN" | "DATA_SOURCE_CREATOR" | "DASHBOARD_CREATOR" | "VIEWER" | "OPERATOR" | "MAINTENANCE" | "MAINTENANCE_MANAGER" | "WAREHOUSE_MANAGER" | "PLANT_MANAGER" | "TECHNICIAN";
 type User = { id: string; fullName: string; role: Role };
 type Asset = { id: string; code: string; name: string; location: string; criticality: string; status: string; typeName: string; categoryName: string | null };
 type Notification = { id: string; code: string; title: string; description: string; type: string; priority: string; severity: string; equipmentOperatingStatus: string; status: string; assetId: string; assetCode: string; assetName: string; photoAttachmentIds: string | null; dueAt: string | null; createdAt: string; requestedByName: string };
@@ -23,15 +22,15 @@ type Completion = { id: string; result: string; solution: string; durationMinute
 type Event = { id: string; eventType: string; fromStatus: WorkStatus | null; toStatus: WorkStatus | null; note: string | null; createdAt: string };
 type Detail = { order: WorkOrder; tasks: Task[]; execution: Array<{ id: string; description: string; minutesSpent: number; overtimeMinutes: number; overtimeMultiplier: string; actionAt: string }>; completions: Completion[]; verifications: Array<{ id: string; decision: string; note: string; verifiedAt: string }>; events: Event[]; usedSpareParts: Array<{ id: string; code: string; name: string; quantity: string; unit: string | null; note: string | null; usedAt: string }> };
 type Overview = { assets: Asset[]; notifications: Notification[]; workOrders: WorkOrder[]; users: User[]; assetTypes: Array<{ id: string; code: string; name: string }>; assetCategories: Array<{ id: string; code: string; name: string }>; spareParts: Array<{ id: string; code: string; name: string; unit: string | null }>; departments: Array<{ id: string; code: string; name: string }> };
-type CurrentUser = { id: string; fullName: string; role: Role };
+type CurrentUser = { id: string; fullName: string; role: Role; permissions: string[] };
 type Mutate = (url: string, payload: unknown, success: string, refreshDetailId?: string) => Promise<boolean>;
 
 const emptyOverview: Overview = { assets: [], notifications: [], workOrders: [], users: [], assetTypes: [], assetCategories: [], spareParts: [], departments: [] };
 const formatDate = (value: string | null) => value ? new Date(value).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "Not set";
 const attachmentIds = (value: string | null) => { try { const ids = JSON.parse(value || "[]"); return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []; } catch { return []; } };
 const label = (value: string) => value.toLowerCase().replaceAll("_", " ").replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
-const isSupervisor = (role?: Role) => role === "ADMIN" || role === "DATA_SOURCE_CREATOR";
-const canExecute = (role?: Role) => role === "ADMIN" || role === "DATA_SOURCE_CREATOR" || role === "DASHBOARD_CREATOR";
+const isSupervisor = (role?: Role) => role === "ADMIN" || role === "DATA_SOURCE_CREATOR" || role === "MAINTENANCE_MANAGER";
+const canExecute = (role?: Role) => role === "ADMIN" || role === "DATA_SOURCE_CREATOR" || role === "DASHBOARD_CREATOR" || role === "MAINTENANCE" || role === "TECHNICIAN";
 
 async function jsonRequest(url: string, options?: RequestInit) {
   const response = await fetch(url, options); const body = await response.json().catch(() => ({}));
@@ -43,10 +42,7 @@ async function uploadPhotos(files: File[], entityType: string, entityId: string)
   return Promise.all(files.map(async (file) => { const form = new FormData(); form.set("file", file); form.set("entityType", entityType); form.set("entityId", entityId); const result = await jsonRequest("/api/attachments/upload", { method: "POST", body: form }); return result.attachment.id as string; }));
 }
 
-const dangerValues = new Set(["CRITICAL", "REJECTED", "CANCELLED", "OVERDUE"]);
-const warningValues = new Set(["HIGH", "BACKLOG", "COMPLETION_PENDING", "RETURNED", "ON_HOLD"]);
-const successValues = new Set(["ACTIVE", "COMPLETED", "VERIFIED", "CLOSED", "APPROVED"]);
-function StatusPill({ value }: { value: string }) { return <Badge className={cn("whitespace-nowrap", dangerValues.has(value) && "border-red-200 bg-red-50 text-red-900", warningValues.has(value) && "border-amber-200 bg-amber-50 text-amber-900", successValues.has(value) && "border-emerald-200 bg-emerald-50 text-emerald-900")}>{label(value)}</Badge>; }
+function StatusPill({ value }: { value: string }) { return <StatusBadge status={value} />; }
 function PhotoStrip({ title, ids }: { title: string; ids: string[] }) { if (ids.length === 0) return null; return <div><h4 className="mb-2 text-sm font-bold text-slate-700">{title}</h4><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{ids.map((id) => <a key={id} href={`/api/attachments/${id}/content`} target="_blank" rel="noreferrer" className="overflow-hidden rounded-lg border border-slate-200"><Image unoptimized width={240} height={240} src={`/api/attachments/${id}/content`} alt={`${title} evidence`} className="aspect-square w-full object-cover" /></a>)}</div></div>; }
 
 function Field({ label: fieldLabel, children, hint }: { label: string; children: ReactNode; hint?: string }) {
@@ -90,7 +86,7 @@ export default function MaintenanceWorkspace() {
   const pageTitle = tab === "pipeline" ? "Maintenance work pipeline" : tab === "assets" ? "Asset register" : "Maintenance notifications";
   const pageDescription = tab === "pipeline" ? "Move work from reported condition through supervised verification and close." : tab === "assets" ? "Maintain the equipment identity that anchors every request and work order." : "Report, review, and authorize maintenance against an active asset.";
   return <PageContainer className="max-w-[90rem]" id="maintenance-main">
-      <PageHeader eyebrow="Controlled maintenance flow" title={pageTitle} description={pageDescription} icon={<Wrench className="size-5" />} actions={<>{canExecute(currentUser?.role) && <Button variant="outline" onClick={() => { setPanel("asset"); setTab("assets"); }}><Boxes className="size-4" />New asset</Button>}<Button onClick={() => { setPanel("notification"); setTab("notifications"); }}><Plus className="size-4" />Report notification</Button></>} />
+      <PageHeader eyebrow="Controlled maintenance flow" title={pageTitle} description={pageDescription} icon={<Wrench className="size-5" />} actions={<>{currentUser?.permissions.includes("MANAGE_WORK_ORDERS") && <Button variant="outline" onClick={() => { setPanel("asset"); setTab("assets"); }}><Boxes className="size-4" />New asset</Button>}{currentUser?.permissions.includes("CREATE_MAINTENANCE_NOTIFICATION") && <Button onClick={() => { setPanel("notification"); setTab("notifications"); }}><Plus className="size-4" />Report notification</Button>}</>} />
       <nav className="maintenance-tabs" aria-label="Maintenance workspace">
         <button className={tab === "pipeline" ? "active" : ""} aria-current={tab === "pipeline" ? "page" : undefined} onClick={() => setTab("pipeline")}>Work pipeline</button>
         <button className={tab === "assets" ? "active" : ""} aria-current={tab === "assets" ? "page" : undefined} onClick={() => setTab("assets")}>Asset register</button>

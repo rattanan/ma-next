@@ -23,7 +23,7 @@ This matrix is the migration backlog index. Evidence paths are relative to `aes0
 | INV-01 | Item/location masters | `Whitm010/011/012Controller`, models/views | `whitm010/011/012`, vendors | Searchable item/location/classification; stock thresholds | Phase 3 |
 | INV-02 | On-hand and ledger | `components/inventory.php`, `Whinv010/020` | `whinv010/020` | Every posting creates ledger and consistent item/location quantity/value | Phase 3 |
 | INV-03 | Issue | `Whitm030/032`, `approvelist`, `inventory::issue` | `whitm030/031/032`, approval, ledger | Approval; prevent shortage; FIFO-like lot costing; atomic post | Phase 3 |
-| INV-04 | Receipt | `Whitm040/042`, `inventory::receive` | `whitm040/041/042`, PO, ledger | Post receipt, update PO quantities/status, notify waiting WO users | Phase 3 |
+| INV-04 | Receipt | `Whitm040/042`, `inventory::receive` | `whitm040/041/042`, PO, ledger | Post receipt, update PO quantities/status, notify waiting WO users | Implemented for approved PO selection, partial/multi-line receipt, reject, over-receipt lock, PO status, On-hand/Stock Card, return/reversal, attachment and print; waiting-WO notification remains in the PO/Stock/WO integration slice |
 | INV-05 | Transfer | `Whitm050/052`, `inventory::transfer` | `whitm050/051/052`, ledger | Validate source and atomically post paired movements | Phase 3 |
 | INV-06 | Stock classification | `commands/InventoryController.php`, `inventory::calStatus` | `whinv010/020`, `whitm010` | Reorder/excess plus slow/fast/expired results match approved rules | Phase 3 |
 | APR-01 | Approval configuration | `SysApprovesController`, `models/SysApproves.php` | `sys_approves` | Ordered approvers and conditions configured safely | Phase 2/3 prerequisite |

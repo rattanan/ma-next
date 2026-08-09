@@ -4,30 +4,30 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Columns3, List, Plus, Search, TriangleAlert } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PriorityBadge, StatusBadge } from "@/components/shared/status-badge";
 import { cn } from "@/lib/utils";
 
 type Order = { id: string; code: string; sourceType: string; workType: string; title: string; priority: string; severity: string; status: string; assetCode: string; assetName: string; departmentId: string | null; crewName: string | null; assignedTo: string | null; dueAt: string | null; updatedAt: string };
 type Result = { items: Order[]; total: number; page: number; pageSize: number };
 type Reference = { users: Array<{ id: string; fullName: string }>; departments: Array<{ id: string; name: string }> };
-const statuses = ["OPEN", "BACKLOG", "IN_PROGRESS", "COMPLETION_PENDING", "VERIFIED", "CLOSED"];
+const statuses = ["OPEN", "BACKLOG", "COMPLETION_PENDING", "VERIFIED", "CREATED", "ASSIGNED", "TECHNICIAN_ACCEPTED", "IN_PROGRESS", "WAITING_FOR_PARTS", "WAITING_FOR_VENDOR", "WAITING_FOR_ACCESS", "ON_HOLD", "TECHNICIAN_COMPLETED", "UNDER_MANAGER_REVIEW", "RETURNED_TO_TECHNICIAN", "MANAGER_APPROVED", "WAITING_FOR_OPERATOR_ACCEPTANCE", "OPERATOR_REJECTED", "OPERATOR_ACCEPTED", "CLOSED", "CANCELLED"];
 const types = ["PREVENTIVE", "CORRECTIVE", "SHUTDOWN", "OTHER_ASSIGNMENT"];
 const priorities = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
 const title = (value: string) => value.toLowerCase().replaceAll("_", " ").replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
 const date = (value: string | null) => value ? new Date(value).toLocaleDateString([], { dateStyle: "medium" }) : "Unscheduled";
 const isOverdue = (item: Order) => Boolean(item.dueAt && new Date(item.dueAt) < new Date() && !["VERIFIED", "CLOSED"].includes(item.status));
 
-function Pill({ value }: { value: string }) { return <Badge className={cn("border", value === "CRITICAL" || value === "BACKLOG" ? "border-red-200 bg-red-50 text-red-800" : value === "CLOSED" || value === "VERIFIED" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : value === "IN_PROGRESS" ? "border-blue-200 bg-blue-50 text-blue-800" : "border-slate-200 bg-slate-50 text-slate-700")}>{title(value)}</Badge>; }
+function Pill({ value }: { value: string }) { return priorities.includes(value) ? <PriorityBadge priority={value} /> : <StatusBadge status={value} />; }
 
-export default function WorkOrderList({ permissions }: { permissions: string[] }) {
+export default function WorkOrderList({ permissions, initialFilters = {} }: { permissions: string[]; initialFilters?: Partial<{ type: string; status: string; priority: string; overdue: string }> }) {
   const [data, setData] = useState<Result>({ items: [], total: 0, page: 1, pageSize: 20 });
   const [refs, setRefs] = useState<Reference>({ users: [], departments: [] });
   const [view, setView] = useState<"list" | "board" | "calendar">("list");
-  const [filters, setFilters] = useState({ q: "", type: "", status: "", priority: "", departmentId: "", assignedTo: "", overdue: "", sort: "updatedAt", order: "desc", page: "1", pageSize: "20" });
+  const [filters, setFilters] = useState({ q: "", type: initialFilters.type ?? "", status: initialFilters.status ?? "", priority: initialFilters.priority ?? "", departmentId: "", assignedTo: "", overdue: initialFilters.overdue ?? "", sort: "updatedAt", order: "desc", page: "1", pageSize: "20" });
   const [loading, setLoading] = useState(true); const [error, setError] = useState("");
   const load = useCallback(async () => {
     setLoading(true); setError("");

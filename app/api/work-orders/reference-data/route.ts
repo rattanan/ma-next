@@ -6,6 +6,6 @@ import { getWorkOrderCreateReferences } from "@/lib/work-orders/service";
 
 export async function GET(request: NextRequest) {
   const meta = getRequestMeta(request);
-  try { await requirePermission(request, "MANAGE_WORK_ORDERS"); return Response.json(await getWorkOrderCreateReferences()); }
+  try { const session = await requirePermission(request, "MANAGE_WORK_ORDERS"); return Response.json(await getWorkOrderCreateReferences(session.user)); }
   catch (error) { return apiError(error, meta.requestId); }
 }

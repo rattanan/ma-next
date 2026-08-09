@@ -1,7 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { db } from "../db";
-import { prisma } from "../prisma";
 import {
   assetCategories, assets, assetTypes, auditLogs, maintenanceNotifications, notificationReviews, spareParts, users,
   workExecutionEntries, workOrderAcceptances, workOrderAssignments, workOrderBacklogEvents, workOrderCompletions, workOrderEvents, workOrderSpareParts, workOrderTasks, workOrderToolLoans, workOrderVerifications, workOrders,
@@ -17,6 +16,8 @@ import { completeNotification, convertNotificationToWorkOrder, initializeNotific
 import type { z } from "zod";
 import type { assetSchema, closeSchema, completionSchema, executionEntrySchema, notificationReviewSchema, notificationSchema, sparePartUsageSchema, taskSchema, taskStatusSchema, verificationSchema } from "./validation";
 import { workOrderInventoryAdapter } from "@/lib/work-orders/inventory-adapter";
+import { canAccessScope, canReadWorkOrder, requireWorkOrderRead } from "./authorization";
+import { getScopedMaintenanceReferences } from "./reference-data";
 
 type Actor = AuthenticatedUser;
 type AssetInput = z.infer<typeof assetSchema>;
@@ -47,23 +48,25 @@ function auditRow(input: { actor: Actor; action: string; category: string; targe
 
 const dateOrNull = (value?: string | null) => value ? new Date(value) : null;
 
-export async function listMaintenanceOverview() {
-  const [assetRows, notificationRows, workOrderRows, userRows, typeRows, categoryRows, sparePartRows, departmentRows] = await Promise.all([
+export async function listMaintenanceOverview(actor: Actor) {
+  const [assetRows, notificationRows, workOrderRows, references, typeRows, categoryRows, sparePartRows] = await Promise.all([
     db.select({ id: assets.id, code: assets.code, name: assets.name, location: assets.location, criticality: assets.criticality, status: assets.status, typeName: assetTypes.name, categoryName: assetCategories.name }).from(assets).innerJoin(assetTypes, eq(assets.assetTypeId, assetTypes.id)).leftJoin(assetCategories, eq(assets.assetCategoryId, assetCategories.id)).orderBy(asc(assets.code)),
-    db.select({ id: maintenanceNotifications.id, code: maintenanceNotifications.code, title: maintenanceNotifications.title, description: maintenanceNotifications.description, type: maintenanceNotifications.type, priority: maintenanceNotifications.priority, severity: maintenanceNotifications.severity, equipmentOperatingStatus: maintenanceNotifications.equipmentOperatingStatus, status: maintenanceNotifications.status, assetId: maintenanceNotifications.assetId, assetCode: assets.code, assetName: assets.name, departmentId: maintenanceNotifications.departmentId, assignedPersonId: maintenanceNotifications.assignedPersonId, photoAttachmentIds: maintenanceNotifications.photoAttachmentIds, dueAt: maintenanceNotifications.dueAt, createdAt: maintenanceNotifications.createdAt, requestedByName: users.fullName }).from(maintenanceNotifications).innerJoin(assets, eq(maintenanceNotifications.assetId, assets.id)).innerJoin(users, eq(maintenanceNotifications.requestedBy, users.id)).orderBy(desc(maintenanceNotifications.createdAt)),
-    db.select({ id: workOrders.id, code: workOrders.code, title: workOrders.title, description: workOrders.description, priority: workOrders.priority, severity: workOrders.severity, status: workOrders.status, backlogReason: workOrders.backlogReason, notificationId: workOrders.notificationId, assetId: workOrders.assetId, assetCode: assets.code, assetName: assets.name, assignedTo: workOrders.assignedTo, dueAt: workOrders.dueAt, startedAt: workOrders.startedAt, verifiedAt: workOrders.verifiedAt, closedAt: workOrders.closedAt, updatedAt: workOrders.updatedAt }).from(workOrders).innerJoin(assets, eq(workOrders.assetId, assets.id)).orderBy(desc(workOrders.updatedAt)),
-    db.select({ id: users.id, fullName: users.fullName, role: users.role }).from(users).where(eq(users.status, "ACTIVE")).orderBy(asc(users.fullName)),
+    db.select({ id: maintenanceNotifications.id, code: maintenanceNotifications.code, title: maintenanceNotifications.title, description: maintenanceNotifications.description, type: maintenanceNotifications.type, priority: maintenanceNotifications.priority, severity: maintenanceNotifications.severity, equipmentOperatingStatus: maintenanceNotifications.equipmentOperatingStatus, status: maintenanceNotifications.status, assetId: maintenanceNotifications.assetId, assetCode: assets.code, assetName: assets.name, organizationId: maintenanceNotifications.organizationId, siteId: maintenanceNotifications.siteId, departmentId: maintenanceNotifications.departmentId, requestedBy: maintenanceNotifications.requestedBy, assignedPersonId: maintenanceNotifications.assignedPersonId, photoAttachmentIds: maintenanceNotifications.photoAttachmentIds, dueAt: maintenanceNotifications.dueAt, createdAt: maintenanceNotifications.createdAt, requestedByName: users.fullName }).from(maintenanceNotifications).innerJoin(assets, eq(maintenanceNotifications.assetId, assets.id)).innerJoin(users, eq(maintenanceNotifications.requestedBy, users.id)).orderBy(desc(maintenanceNotifications.createdAt)),
+    db.select({ id: workOrders.id, code: workOrders.code, title: workOrders.title, description: workOrders.description, priority: workOrders.priority, severity: workOrders.severity, status: workOrders.status, backlogReason: workOrders.backlogReason, notificationId: workOrders.notificationId, assetId: workOrders.assetId, assetCode: assets.code, assetName: assets.name, organizationId: workOrders.organizationId, siteId: workOrders.siteId, departmentId: workOrders.departmentId, assignedTo: workOrders.assignedTo, leadUserId: workOrders.leadUserId, createdBy: workOrders.createdBy, dueAt: workOrders.dueAt, startedAt: workOrders.startedAt, verifiedAt: workOrders.verifiedAt, closedAt: workOrders.closedAt, updatedAt: workOrders.updatedAt }).from(workOrders).innerJoin(assets, eq(workOrders.assetId, assets.id)).orderBy(desc(workOrders.updatedAt)),
+    getScopedMaintenanceReferences(actor, "VIEW_MAINTENANCE"),
     db.select({ id: assetTypes.id, code: assetTypes.code, name: assetTypes.name }).from(assetTypes).where(eq(assetTypes.active, true)).orderBy(asc(assetTypes.name)),
     db.select({ id: assetCategories.id, code: assetCategories.code, name: assetCategories.name }).from(assetCategories).where(eq(assetCategories.active, true)).orderBy(asc(assetCategories.name)),
     db.select({ id: spareParts.id, code: spareParts.code, name: spareParts.name, unit: spareParts.unit, availableQuantity: spareParts.availableQuantity }).from(spareParts).orderBy(asc(spareParts.code)),
-    prisma.department.findMany({ where: { active: true }, select: { id: true, code: true, name: true }, orderBy: { name: "asc" } }),
   ]);
-  return { assets: assetRows, notifications: notificationRows, workOrders: workOrderRows, users: userRows, assetTypes: typeRows, assetCategories: categoryRows, spareParts: sparePartRows, departments: departmentRows };
+  const visibleNotifications = notificationRows.filter((item) => item.requestedBy === actor.id || canAccessScope(actor, item, "VIEW_MAINTENANCE"));
+  const visibleWorkOrders = workOrderRows.filter((item) => canReadWorkOrder(actor, item));
+  return { assets: assetRows, notifications: visibleNotifications, workOrders: visibleWorkOrders, users: references.users, assetTypes: typeRows, assetCategories: categoryRows, spareParts: sparePartRows, departments: references.departments };
 }
 
-export async function getWorkOrderDetail(id: string) {
-  const order = (await db.select({ id: workOrders.id, code: workOrders.code, sourceType: workOrders.sourceType, sourceRecordId: workOrders.sourceRecordId, workType: workOrders.workType, title: workOrders.title, description: workOrders.description, priority: workOrders.priority, severity: workOrders.severity, equipmentOperatingStatus: workOrders.equipmentOperatingStatus, status: workOrders.status, notificationId: workOrders.notificationId, assetId: workOrders.assetId, assetCode: assets.code, assetName: assets.name, departmentId: workOrders.departmentId, crewName: workOrders.crewName, assignedTo: workOrders.assignedTo, leadUserId: workOrders.leadUserId, supervisorId: workOrders.supervisorId, vendorName: workOrders.vendorName, customerName: workOrders.customerName, reporterName: workOrders.reporterName, reporterPhone: workOrders.reporterPhone, reportedAt: workOrders.reportedAt, plannedStartAt: workOrders.plannedStartAt, plannedFinishAt: workOrders.plannedFinishAt, dueAt: workOrders.dueAt, estimatedMinutes: workOrders.estimatedMinutes, startedAt: workOrders.startedAt, actualFinishAt: workOrders.actualFinishAt, verifiedAt: workOrders.verifiedAt, closedAt: workOrders.closedAt, notes: workOrders.notes, backlogReason: workOrders.backlogReason, createdAt: workOrders.createdAt, updatedAt: workOrders.updatedAt }).from(workOrders).innerJoin(assets, eq(workOrders.assetId, assets.id)).where(eq(workOrders.id, id)).limit(1))[0];
+export async function getWorkOrderDetail(id: string, actor: Actor) {
+  const order = (await db.select({ id: workOrders.id, code: workOrders.code, sourceType: workOrders.sourceType, sourceRecordId: workOrders.sourceRecordId, workType: workOrders.workType, title: workOrders.title, description: workOrders.description, priority: workOrders.priority, severity: workOrders.severity, equipmentOperatingStatus: workOrders.equipmentOperatingStatus, status: workOrders.status, notificationId: workOrders.notificationId, assetId: workOrders.assetId, assetCode: assets.code, assetName: assets.name, organizationId: workOrders.organizationId, siteId: workOrders.siteId, departmentId: workOrders.departmentId, crewName: workOrders.crewName, assignedTo: workOrders.assignedTo, leadUserId: workOrders.leadUserId, supervisorId: workOrders.supervisorId, vendorName: workOrders.vendorName, customerName: workOrders.customerName, reporterName: workOrders.reporterName, reporterPhone: workOrders.reporterPhone, reportedAt: workOrders.reportedAt, plannedStartAt: workOrders.plannedStartAt, plannedFinishAt: workOrders.plannedFinishAt, dueAt: workOrders.dueAt, estimatedMinutes: workOrders.estimatedMinutes, startedAt: workOrders.startedAt, actualFinishAt: workOrders.actualFinishAt, verifiedAt: workOrders.verifiedAt, closedAt: workOrders.closedAt, notes: workOrders.notes, backlogReason: workOrders.backlogReason, createdBy: workOrders.createdBy, createdAt: workOrders.createdAt, updatedAt: workOrders.updatedAt }).from(workOrders).innerJoin(assets, eq(workOrders.assetId, assets.id)).where(eq(workOrders.id, id)).limit(1))[0];
   if (!order) throw new HttpError(404, "Work order not found", "WORK_ORDER_NOT_FOUND");
+  requireWorkOrderRead(actor, order);
   const [tasks, execution, completions, verifications, events, usedSpareParts, assignments, backlogEvents, toolLoans, acceptances] = await Promise.all([
     db.select().from(workOrderTasks).where(eq(workOrderTasks.workOrderId, id)).orderBy(asc(workOrderTasks.sequence)),
     db.select().from(workExecutionEntries).where(eq(workExecutionEntries.workOrderId, id)).orderBy(desc(workExecutionEntries.actionAt)),
@@ -77,6 +80,13 @@ export async function getWorkOrderDetail(id: string) {
     db.select().from(workOrderAcceptances).where(eq(workOrderAcceptances.workOrderId, id)).orderBy(desc(workOrderAcceptances.acceptedAt)),
   ]);
   return { order, tasks, execution, completions, verifications, events, usedSpareParts, assignments, backlogEvents, toolLoans, acceptances };
+}
+
+export async function requireWorkOrderAccess(id: string, actor: Actor) {
+  const order = (await db.select({ id: workOrders.id, organizationId: workOrders.organizationId, siteId: workOrders.siteId, departmentId: workOrders.departmentId, assignedTo: workOrders.assignedTo, leadUserId: workOrders.leadUserId, createdBy: workOrders.createdBy }).from(workOrders).where(eq(workOrders.id, id)).limit(1))[0];
+  if (!order) throw new HttpError(404, "Work order not found", "WORK_ORDER_NOT_FOUND");
+  requireWorkOrderRead(actor, order);
+  return order;
 }
 
 export async function createAsset(input: AssetInput, actor: Actor, meta: RequestMeta) {

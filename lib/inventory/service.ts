@@ -17,6 +17,7 @@ import {
   inventoryReportQuerySchema,
   inventoryReceiptSourceQuerySchema,
   inventorySettingMutationSchema,
+  purchaseOrderReceiptMutationSchema,
   stockCountActionSchema,
   stockCountMutationSchema,
   stockCountUpdateSchema,
@@ -26,6 +27,7 @@ import {
   vendorRatingMutationSchema,
   type InventoryDocumentInput,
   type InventoryDocumentLineInput,
+  type PurchaseOrderReceiptInput,
 } from "./validation";
 
 type Actor = AuthenticatedUser;
@@ -50,6 +52,12 @@ function requireInventoryScope(actor: Actor, siteId?: string | null, departmentI
 }
 
 function mapCost(value: DecimalLike, actor: Actor) { return canSeeCosts(actor) ? decimalString(value) : null; }
+
+function acceptedReceiptQuantity(line: { requestedQuantity: DecimalLike; approvedQuantity?: DecimalLike; rejectedQuantity?: DecimalLike }) {
+  const delivered = D(line.approvedQuantity ?? line.requestedQuantity);
+  const accepted = delivered.minus(D(line.rejectedQuantity));
+  return accepted.gt(0) ? accepted : D(0);
+}
 
 function grade(score: DecimalLike) {
   const value = D(score);
@@ -278,8 +286,129 @@ export async function updateVendorRating(vendorId: string, input: z.infer<typeof
 }
 
 function documentCanRead(actor: Actor, document: { requesterId: string; siteId: string | null; departmentId: string | null }) {
-  if (document.requesterId === actor.id || canManageAll(actor)) return true;
-  return false;
+  if (document.requesterId === actor.id || isAdmin(actor)) return true;
+  if (!document.siteId && !document.departmentId) return false;
+  try { requireInventoryScope(actor, document.siteId, document.departmentId); return true; }
+  catch { return false; }
+}
+
+function stockCountCanRead(actor: Actor, stockCount: { createdBy: string; siteId: string | null }) {
+  if (stockCount.createdBy === actor.id || isAdmin(actor)) return true;
+  if (!stockCount.siteId) return false;
+  try { requireInventoryScope(actor, stockCount.siteId, null); return true; }
+  catch { return false; }
+}
+
+const activeReceiptReservationStatuses = ["DRAFT", "PENDING_MAINTENANCE_MANAGER", "PENDING_WAREHOUSE_MANAGER", "APPROVED", "RETURNED"] as const;
+
+export async function listReceivablePurchaseOrders(actor: Actor) {
+  requireInventoryPermission(actor, "INVENTORY_REQUEST_VIEW");
+  const orders = await prisma.purchaseOrder.findMany({
+    where: { status: { in: ["ISSUED", "PARTIAL_RECEIVED"] } },
+    include: {
+      vendor: true,
+      lines: {
+        include: {
+          stockItem: { include: { mainLocation: true } },
+          receiptLines: {
+            where: { document: { status: { in: [...activeReceiptReservationStatuses] } } },
+            include: { document: { select: { id: true, documentNumber: true, status: true } } },
+          },
+        },
+        orderBy: { lineNumber: "asc" },
+      },
+    },
+    orderBy: [{ expectedDeliveryDate: "asc" }, { createdAt: "asc" }],
+  });
+  const visible = orders.filter((order) => {
+    try { requireInventoryScope(actor, order.siteId, order.departmentId); return true; }
+    catch { return false; }
+  });
+  return { purchaseOrders: visible.map((order) => ({
+    ...order,
+    orderDate: order.issuedAt ?? order.createdAt,
+    totalAmount: mapCost(order.grandTotalAmount, actor),
+    lines: order.lines.map((line) => {
+      const reservedQuantity = line.receiptLines.reduce((sum, receiptLine) => sum.plus(acceptedReceiptQuantity(receiptLine)), D(0));
+      const outstandingQuantity = D(line.quantity).minus(line.receivedQuantity);
+      const availableToReceive = outstandingQuantity.minus(reservedQuantity);
+      return {
+        ...line,
+        orderedQuantity: decimalString(line.quantity),
+        receivedQuantity: decimalString(line.receivedQuantity),
+        rejectedQuantity: decimalString(line.rejectedQuantity),
+        returnedQuantity: decimalString(line.returnedQuantity),
+        reservedQuantity: decimalString(reservedQuantity),
+        outstandingQuantity: decimalString(outstandingQuantity.gt(0) ? outstandingQuantity : D(0)),
+        availableToReceive: decimalString(availableToReceive.gt(0) ? availableToReceive : D(0)),
+        unit: line.stockItem.unit,
+        unitPrice: mapCost(line.unitPrice, actor),
+        totalAmount: mapCost(line.lineTotal, actor),
+      };
+    }).filter((line) => D(line.outstandingQuantity).gt(0)),
+  })).filter((order) => order.lines.length > 0) };
+}
+
+export async function createPurchaseOrderReceipt(input: PurchaseOrderReceiptInput, actor: Actor, meta: RequestMeta) {
+  requireInventoryPermission(actor, "INVENTORY_REQUEST_CREATE");
+  const record = await prisma.$transaction(async (tx) => {
+    const order = await tx.purchaseOrder.findUnique({ where: { id: input.purchaseOrderId }, include: { vendor: true } });
+    if (!order) throw new HttpError(404, "Purchase order not found", "PURCHASE_ORDER_NOT_FOUND");
+    if (!["ISSUED", "PARTIAL_RECEIVED"].includes(order.status)) throw new HttpError(409, "Only an issued purchase order can be received", "PURCHASE_ORDER_NOT_RECEIVABLE");
+    requireInventoryScope(actor, order.siteId, order.departmentId);
+
+    const lineIds = input.lines.map((line) => line.purchaseOrderLineId).sort();
+    for (const lineId of lineIds) await tx.$queryRaw(Prisma.sql`SELECT id FROM purchase_order_lines WHERE id = ${lineId} FOR UPDATE`);
+    const [orderLines, locations, pendingLines] = await Promise.all([
+      tx.purchaseOrderLine.findMany({ where: { id: { in: lineIds }, purchaseOrderId: order.id }, include: { stockItem: true } }),
+      tx.inventoryLocation.findMany({ where: { id: { in: [...new Set(input.lines.map((line) => line.destinationLocationId))] }, active: true } }),
+      tx.inventoryDocumentLine.findMany({
+        where: { purchaseOrderLineId: { in: lineIds }, document: { status: { in: [...activeReceiptReservationStatuses] } } },
+        select: { purchaseOrderLineId: true, requestedQuantity: true, approvedQuantity: true, rejectedQuantity: true },
+      }),
+    ]);
+    if (orderLines.length !== lineIds.length) throw new HttpError(400, "Every receipt line must belong to the selected purchase order", "PURCHASE_ORDER_LINE_MISMATCH");
+    if (locations.length !== new Set(input.lines.map((line) => line.destinationLocationId)).size) throw new HttpError(400, "Every receipt line requires an active destination location", "INVALID_DESTINATION_LOCATION");
+    const orderLineMap = new Map(orderLines.map((line) => [line.id, line]));
+    const reservedByLine = new Map<string, Decimal>();
+    for (const line of pendingLines) if (line.purchaseOrderLineId) reservedByLine.set(line.purchaseOrderLineId, D(reservedByLine.get(line.purchaseOrderLineId)).plus(acceptedReceiptQuantity(line)));
+
+    for (const inputLine of input.lines) {
+      const orderLine = orderLineMap.get(inputLine.purchaseOrderLineId)!;
+      const accepted = D(inputLine.receivedQuantity).minus(inputLine.rejectedQuantity);
+      const available = D(orderLine.quantity).minus(orderLine.receivedQuantity).minus(reservedByLine.get(orderLine.id) ?? D(0));
+      if (accepted.gt(available)) throw new HttpError(409, `Receipt quantity exceeds PO ${order.orderNumber} line ${orderLine.lineNumber}; available ${decimalString(available.gt(0) ? available : D(0))}`, "PURCHASE_ORDER_QUANTITY_EXCEEDED");
+    }
+
+    const documentDate = new Date(input.documentDate);
+    const number = await nextDocumentNumber(tx, "RECEIPT", documentDate);
+    const document = await tx.inventoryDocument.create({
+      data: {
+        id: randomUUID(), documentType: "RECEIPT", documentNumber: number, documentDate,
+        siteId: order.siteId, requesterId: actor.id, departmentId: order.departmentId,
+        purpose: `Receipt from PO ${order.orderNumber}`, referenceWorkOrderId: order.workOrderId,
+        purchaseOrderId: order.id, status: "DRAFT", currentApprovalStep: null,
+        remark: optionalString([input.deliveryNoteNumber ? `Delivery note: ${input.deliveryNoteNumber}` : null, input.remark].filter(Boolean).join("\n")),
+        createdBy: actor.id, updatedBy: actor.id,
+        lines: { create: input.lines.map((inputLine, index) => {
+          const orderLine = orderLineMap.get(inputLine.purchaseOrderLineId)!;
+          const delivered = D(inputLine.receivedQuantity);
+          return {
+            lineNumber: index + 1, stockItemId: orderLine.stockItemId, destinationLocationId: inputLine.destinationLocationId,
+            requestedQuantity: delivered, rejectedQuantity: D(inputLine.rejectedQuantity), unit: orderLine.stockItem.unit,
+            unitCost: orderLine.unitPrice, totalAmount: delivered.times(orderLine.unitPrice), vendorId: order.vendorId,
+            purchaseOrderReference: order.orderNumber, purchaseOrderLineId: orderLine.id,
+            expectedDeliveryDate: orderLine.expectedDeliveryDate ?? order.expectedDeliveryDate,
+            actualDeliveryDate: asDate(inputLine.actualDeliveryDate) ?? documentDate,
+            workOrderId: orderLine.workOrderId ?? order.workOrderId, remark: optionalString(inputLine.remark),
+          };
+        }) },
+      },
+    });
+    await writeAudit(tx, { action: "PURCHASE_ORDER_RECEIPT_CREATED", category: "INVENTORY", targetType: "INVENTORY_DOCUMENT", targetId: document.id, targetName: document.documentNumber, description: `Created ${document.documentNumber} from PO ${order.orderNumber}`, newValues: input }, actor, meta);
+    return document;
+  });
+  return { id: record.id, documentNumber: record.documentNumber, status: record.status };
 }
 
 function documentWhereForActor(actor: Actor): Prisma.InventoryDocumentWhereInput {
@@ -342,12 +471,12 @@ export async function listAvailableReceiptSources(query: z.infer<typeof inventor
   return { receiptSources: lines.map((line) => { const receivedQuantity = D(line.approvedQuantity ?? line.requestedQuantity); const issuedQuantity = issuedByReceipt.get(line.id) ?? D(0); const availableQuantity = receivedQuantity.minus(issuedQuantity); return { id: line.id, documentId: line.document.id, documentNumber: line.document.documentNumber, documentDate: line.document.documentDate, lineNumber: line.lineNumber, stockItem: line.stockItem, destinationLocation: line.destinationLocation, vendor: line.vendor, receivedQuantity: decimalString(receivedQuantity), issuedQuantity: decimalString(issuedQuantity), availableQuantity: decimalString(availableQuantity), unitCost: mapCost(line.unitCost, actor), totalAmount: mapCost(line.totalAmount, actor) }; }).filter((line) => D(line.availableQuantity).gt(0)) };
 }
 
-export async function listInventoryDocuments(query: z.infer<typeof inventoryListQuerySchema> & { type?: "ISSUE" | "RECEIPT" | "TRANSFER"; status?: string }, actor: Actor) {
+export async function listInventoryDocuments(query: z.infer<typeof inventoryListQuerySchema> & { type?: "ISSUE" | "RECEIPT" | "TRANSFER"; status?: string; purchaseOrderOnly?: boolean }, actor: Actor) {
   requireInventoryPermission(actor, "INVENTORY_REQUEST_VIEW");
-  const where: Prisma.InventoryDocumentWhereInput = { ...documentWhereForActor(actor), ...(query.type ? { documentType: query.type } : {}), ...(query.status ? { status: query.status as never } : {}) };
+  const where: Prisma.InventoryDocumentWhereInput = { ...documentWhereForActor(actor), ...(query.type ? { documentType: query.type } : {}), ...(query.status ? { status: query.status as never } : {}), ...(query.purchaseOrderOnly ? { purchaseOrderId: { not: null } } : {}) };
   if (query.q) where.OR = [{ documentNumber: { contains: query.q } }, { purpose: { contains: query.q } }];
   const [documents, total] = await Promise.all([
-    prisma.inventoryDocument.findMany({ where, include: { lines: { include: { stockItem: true, sourceLocation: true, destinationLocation: true, vendor: true, sourceReceiptLine: { select: { id: true, document: { select: { id: true, documentNumber: true, documentDate: true, status: true } } } } } }, approvals: { orderBy: { sequence: "asc" } } }, orderBy: { createdAt: "desc" }, skip: (query.page - 1) * query.pageSize, take: query.pageSize }),
+    prisma.inventoryDocument.findMany({ where, include: { purchaseOrder: { select: { id: true, orderNumber: true, status: true } }, lines: { include: { stockItem: true, sourceLocation: true, destinationLocation: true, vendor: true, purchaseOrderLine: { select: { id: true, lineNumber: true, quantity: true, receivedQuantity: true } }, sourceReceiptLine: { select: { id: true, document: { select: { id: true, documentNumber: true, documentDate: true, status: true } } } } } }, approvals: { orderBy: { sequence: "asc" } } }, orderBy: { createdAt: "desc" }, skip: (query.page - 1) * query.pageSize, take: query.pageSize }),
     prisma.inventoryDocument.count({ where }),
   ]);
   const people = await prisma.user.findMany({ where: { id: { in: [...new Set(documents.map((document) => document.requesterId))] } }, select: { id: true, fullName: true } });
@@ -357,7 +486,7 @@ export async function listInventoryDocuments(query: z.infer<typeof inventoryList
 
 export async function getInventoryDocument(id: string, actor: Actor) {
   requireInventoryPermission(actor, "INVENTORY_REQUEST_VIEW");
-  const document = await prisma.inventoryDocument.findUnique({ where: { id }, include: { lines: { include: { stockItem: true, sourceLocation: true, destinationLocation: true, vendor: true, sourceReceiptLine: { select: { id: true, document: { select: { id: true, documentNumber: true, documentDate: true, status: true } } } } }, orderBy: { lineNumber: "asc" } }, approvals: { orderBy: [{ round: "asc" }, { sequence: "asc" }] }, attachments: true, movements: { include: { sourceReceiptLine: { select: { id: true, document: { select: { id: true, documentNumber: true, documentDate: true, status: true } } } } }, orderBy: { postedAt: "desc" } } } });
+  const document = await prisma.inventoryDocument.findUnique({ where: { id }, include: { purchaseOrder: { include: { vendor: true } }, lines: { include: { stockItem: true, sourceLocation: true, destinationLocation: true, vendor: true, purchaseOrderLine: true, sourceReceiptLine: { select: { id: true, document: { select: { id: true, documentNumber: true, documentDate: true, status: true } } } } }, orderBy: { lineNumber: "asc" } }, approvals: { orderBy: [{ round: "asc" }, { sequence: "asc" }] }, attachments: true, movements: { include: { sourceReceiptLine: { select: { id: true, document: { select: { id: true, documentNumber: true, documentDate: true, status: true } } } } }, orderBy: { postedAt: "desc" } } } });
   if (!document) throw new HttpError(404, "Inventory document not found", "INVENTORY_DOCUMENT_NOT_FOUND");
   if (!documentCanRead(actor, document)) throw new HttpError(403, "This document is outside your inventory scope", "SCOPE_FORBIDDEN");
   const attachments = await prisma.attachment.findMany({ where: { entityType: "INVENTORY_DOCUMENT", entityId: id, deletedAt: null }, orderBy: { createdAt: "desc" } });
@@ -497,12 +626,32 @@ export async function postInventoryDocumentTx(tx: Tx, documentId: string, actor:
   if (!document) throw new HttpError(404, "Inventory document not found", "INVENTORY_DOCUMENT_NOT_FOUND");
   if (document.status === "POSTED") return document;
   if (!["PENDING_WAREHOUSE_MANAGER", "APPROVED"].includes(document.status)) throw new HttpError(409, "Inventory document is not ready for posting", "INVENTORY_NOT_READY_TO_POST");
+  const purchaseOrderPosting = new Map<string, { accepted: Decimal; rejected: Decimal }>();
+  if (document.purchaseOrderId) {
+    if (document.documentType !== "RECEIPT") throw new HttpError(409, "Only a Receipt may reference a purchase order", "INVALID_PURCHASE_ORDER_DOCUMENT");
+    await tx.$queryRaw(Prisma.sql`SELECT id FROM purchase_orders WHERE id = ${document.purchaseOrderId} FOR UPDATE`);
+    const order = await tx.purchaseOrder.findUnique({ where: { id: document.purchaseOrderId } });
+    if (!order || !["ISSUED", "PARTIAL_RECEIVED"].includes(order.status)) throw new HttpError(409, "Purchase order is no longer receivable", "PURCHASE_ORDER_NOT_RECEIVABLE");
+    const purchaseOrderLineIds = document.lines.map((line) => line.purchaseOrderLineId).filter((id): id is string => Boolean(id)).sort();
+    if (purchaseOrderLineIds.length !== document.lines.length) throw new HttpError(409, "Every PO Receipt line must reference a purchase order line", "PURCHASE_ORDER_LINE_REQUIRED");
+    for (const lineId of purchaseOrderLineIds) await tx.$queryRaw(Prisma.sql`SELECT id FROM purchase_order_lines WHERE id = ${lineId} FOR UPDATE`);
+    const orderLines = await tx.purchaseOrderLine.findMany({ where: { id: { in: purchaseOrderLineIds }, purchaseOrderId: document.purchaseOrderId } });
+    if (orderLines.length !== purchaseOrderLineIds.length) throw new HttpError(409, "Receipt contains a line from another purchase order", "PURCHASE_ORDER_LINE_MISMATCH");
+    const orderLineMap = new Map(orderLines.map((line) => [line.id, line]));
+    for (const line of document.lines) {
+      const orderLine = orderLineMap.get(line.purchaseOrderLineId!)!;
+      if (orderLine.stockItemId !== line.stockItemId) throw new HttpError(409, "Receipt stock item does not match the purchase order line", "PURCHASE_ORDER_ITEM_MISMATCH");
+      const accepted = acceptedReceiptQuantity(line); const rejected = D(line.rejectedQuantity);
+      if (D(orderLine.receivedQuantity).plus(accepted).gt(orderLine.quantity)) throw new HttpError(409, `Receipt quantity exceeds PO line ${orderLine.lineNumber}`, "PURCHASE_ORDER_QUANTITY_EXCEEDED");
+      purchaseOrderPosting.set(orderLine.id, { accepted, rejected });
+    }
+  }
   const pairs = document.lines.flatMap((line) => [line.sourceLocationId, line.destinationLocationId].filter((locationId): locationId is string => Boolean(locationId)).map((locationId) => ({ itemId: line.stockItemId, locationId }))).sort((a, b) => `${a.itemId}:${a.locationId}`.localeCompare(`${b.itemId}:${b.locationId}`));
   const balances = new Map<string, Awaited<ReturnType<typeof lockBalance>>>();
   for (const pair of pairs) if (!balances.has(`${pair.itemId}:${pair.locationId}`)) balances.set(`${pair.itemId}:${pair.locationId}`, await lockBalance(tx, pair.itemId, pair.locationId));
   const negativeAllowed = await allowNegativeStock(tx); const postedAt = new Date();
   for (const line of document.lines) {
-    const quantity = D(line.approvedQuantity ?? line.requestedQuantity); if (quantity.lte(0)) continue;
+    const quantity = document.documentType === "RECEIPT" ? acceptedReceiptQuantity(line) : D(line.approvedQuantity ?? line.requestedQuantity); if (quantity.lte(0)) continue;
     if (document.documentType === "ISSUE") {
       const receiptSource = await resolveIssueReceiptSource(tx, line, documentId, quantity);
       const source = balances.get(`${line.stockItemId}:${line.sourceLocationId}`)!;
@@ -518,6 +667,15 @@ export async function postInventoryDocumentTx(tx: Tx, documentId: string, actor:
       await applyIn(tx, destination, quantity, sourceCost, "TRANSFER_IN", { documentId, documentNumber: document.documentNumber, lineId: line.id, stockItemId: line.stockItemId, locationId: line.destinationLocationId!, sourceLocationId: line.sourceLocationId, workOrderId: line.workOrderId, postedBy: actor.id, postedAt });
     }
   }
+  if (document.purchaseOrderId) {
+    for (const [lineId, quantities] of purchaseOrderPosting) {
+      await tx.purchaseOrderLine.update({ where: { id: lineId }, data: { receivedQuantity: { increment: quantities.accepted }, rejectedQuantity: { increment: quantities.rejected } } });
+    }
+    const orderLines = await tx.purchaseOrderLine.findMany({ where: { purchaseOrderId: document.purchaseOrderId }, select: { quantity: true, receivedQuantity: true } });
+    const complete = orderLines.length > 0 && orderLines.every((line) => D(line.receivedQuantity).gte(line.quantity));
+    const partiallyReceived = orderLines.some((line) => D(line.receivedQuantity).gt(0));
+    await tx.purchaseOrder.update({ where: { id: document.purchaseOrderId }, data: { status: complete ? "RECEIVED" : partiallyReceived ? "PARTIAL_RECEIVED" : "ISSUED", updatedBy: actor.id } });
+  }
   const posted = await tx.inventoryDocument.update({ where: { id: documentId }, data: { status: "POSTED", currentApprovalStep: null, postedAt, postedBy: actor.id, postingTransactionId: randomUUID(), updatedBy: actor.id } });
   if (document.documentType === "RECEIPT") {
     const purchaseOrderIds = [...new Set(document.lines.map((line) => line.purchaseOrderId).filter((id): id is string => Boolean(id)))];
@@ -525,6 +683,22 @@ export async function postInventoryDocumentTx(tx: Tx, documentId: string, actor:
   }
   await writeAudit(tx, { action: "INVENTORY_DOCUMENT_POSTED", category: "INVENTORY", targetType: "INVENTORY_DOCUMENT", targetId: documentId, targetName: document.documentNumber, description: `Posted inventory document ${document.documentNumber}`, previousValues: { status: document.status }, newValues: { status: posted.status, postedAt } }, actor, meta);
   return posted;
+}
+
+export async function confirmPurchaseOrderReceipt(id: string, actor: Actor, meta: RequestMeta) {
+  requireInventoryPermission(actor, "INVENTORY_POST");
+  const result = await prisma.$transaction(async (tx) => {
+    const document = await tx.inventoryDocument.findUnique({ where: { id }, include: { purchaseOrder: true } });
+    if (!document || document.documentType !== "RECEIPT" || !document.purchaseOrderId || !document.purchaseOrder) throw new HttpError(404, "Purchase order Receipt not found", "PURCHASE_ORDER_RECEIPT_NOT_FOUND");
+    if (document.status === "POSTED") return document;
+    if (document.requesterId !== actor.id && !canManageAll(actor)) throw new HttpError(403, "Only the receiver or inventory manager may confirm this Receipt", "FORBIDDEN");
+    if (document.status !== "DRAFT") throw new HttpError(409, "Only a draft PO Receipt can be confirmed", "PURCHASE_ORDER_RECEIPT_NOT_CONFIRMABLE");
+    requireInventoryScope(actor, document.siteId, document.departmentId);
+    await tx.inventoryDocument.update({ where: { id }, data: { status: "APPROVED", updatedBy: actor.id } });
+    return postInventoryDocumentTx(tx, id, actor, meta);
+  });
+  await createNotification({ type: "PURCHASE_ORDER_RECEIPT_POSTED", title: `PO Receipt posted: ${result.documentNumber}`, message: `${result.documentNumber} was confirmed and stock on-hand was updated.`, actionUrl: "/inventory/po-receipts", sourceType: "INVENTORY_DOCUMENT", sourceId: id, recipientIds: [result.requesterId] }, actor, meta).catch(() => undefined);
+  return { id: result.id, documentNumber: result.documentNumber, status: result.status };
 }
 
 export async function cancelInventoryDocument(id: string, actor: Actor, meta: RequestMeta) {
@@ -553,6 +727,22 @@ export async function cancelInventoryDocument(id: string, actor: Actor, meta: Re
       const context = { documentId: id, documentNumber: document.documentNumber, lineId: movement.lineId, stockItemId: movement.stockItemId, locationId: movement.locationId, sourceLocationId: movement.sourceLocationId, destinationLocationId: movement.destinationLocationId, sourceReceiptLineId: movement.sourceReceiptLineId, unitCost: movement.unitCost, vendorId: movement.vendorId, workOrderId: movement.workOrderId, stockCountId: movement.stockCountId, postedBy: actor.id, postedAt };
       if (D(movement.quantityIn).gt(0)) await applyOut(tx, balance, D(movement.quantityIn), "REVERSAL", { ...context, amount: movement.amountIn }, false);
       if (D(movement.quantityOut).gt(0)) await applyIn(tx, balance, D(movement.quantityOut), D(movement.unitCost), "REVERSAL", { ...context, amount: movement.amountOut });
+    }
+    if (document.purchaseOrderId) {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM purchase_orders WHERE id = ${document.purchaseOrderId} FOR UPDATE`);
+      for (const line of document.lines) {
+        if (!line.purchaseOrderLineId) continue;
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM purchase_order_lines WHERE id = ${line.purchaseOrderLineId} FOR UPDATE`);
+        const orderLine = await tx.purchaseOrderLine.findUnique({ where: { id: line.purchaseOrderLineId } });
+        if (!orderLine || orderLine.purchaseOrderId !== document.purchaseOrderId) continue;
+        const returned = acceptedReceiptQuantity(line);
+        const nextReceived = D(orderLine.receivedQuantity).minus(returned);
+        await tx.purchaseOrderLine.update({ where: { id: orderLine.id }, data: { receivedQuantity: nextReceived.gt(0) ? nextReceived : D(0), returnedQuantity: { increment: returned } } });
+      }
+      const orderLines = await tx.purchaseOrderLine.findMany({ where: { purchaseOrderId: document.purchaseOrderId }, select: { quantity: true, receivedQuantity: true } });
+      const complete = orderLines.length > 0 && orderLines.every((line) => D(line.receivedQuantity).gte(line.quantity));
+      const partiallyReceived = orderLines.some((line) => D(line.receivedQuantity).gt(0));
+      await tx.purchaseOrder.update({ where: { id: document.purchaseOrderId }, data: { status: complete ? "RECEIVED" : partiallyReceived ? "PARTIAL_RECEIVED" : "ISSUED", updatedBy: actor.id } });
     }
     const cancelled = await tx.inventoryDocument.update({ where: { id }, data: { status: "CANCELLED", currentApprovalStep: null, updatedBy: actor.id } });
     if (document.documentType === "RECEIPT") {
@@ -627,6 +817,8 @@ export async function listInventoryApprovals(actor: Actor, query: { tab?: string
   const tabStatus: Record<string, string[]> = { pending: ["PENDING"], "in-review": ["IN_REVIEW"], returned: ["RETURNED"], approved: ["APPROVED"], rejected: ["REJECTED"], all: [] };
   const approvals = await prisma.inventoryApproval.findMany({ where: { assignedRole: { in: accessibleSteps }, ...(tabStatus[query.tab ?? "pending"]?.length ? { status: { in: tabStatus[query.tab ?? "pending"] as never[] } } : {}) }, include: { document: true, stockCount: true } });
   const filtered = approvals.filter((approval) => {
+    if (approval.document && !documentCanRead(actor, approval.document)) return false;
+    if (approval.stockCount && !stockCountCanRead(actor, approval.stockCount)) return false;
     const number = approval.document?.documentNumber ?? approval.stockCount?.countNumber ?? ""; const title = approval.document ? `${approval.document.documentType} ${approval.document.purpose ?? ""}` : `Stock Count ${approval.stockCount?.countType ?? ""}`;
     return !query.q || `${number} ${title}`.toLowerCase().includes(query.q.toLowerCase());
   }).sort((a, b) => b.requestedAt.getTime() - a.requestedAt.getTime());
@@ -653,6 +845,7 @@ export async function getInventoryApprovalDetail(id: string, actor: Actor) {
   });
   if (!approval) throw new HttpError(404, "Inventory approval not found", "INVENTORY_APPROVAL_NOT_FOUND");
   if (approval.document && !documentCanRead(actor, approval.document)) throw new HttpError(403, "This approval is outside your inventory scope", "SCOPE_FORBIDDEN");
+  if (approval.stockCount && !stockCountCanRead(actor, approval.stockCount)) throw new HttpError(403, "This approval is outside your inventory scope", "SCOPE_FORBIDDEN");
   const requester = await prisma.user.findUnique({ where: { id: approval.requestedBy }, select: { fullName: true } });
   return { task: { id: approval.id, approvalType: "INVENTORY", referenceNumber: approval.document?.documentNumber ?? approval.stockCount?.countNumber ?? "—", title: approval.document ? `${approval.document.documentType} request` : `Stock Count · ${approval.stockCount?.countType ?? ""}`, status: approval.status, priority: null, requestedAt: approval.requestedAt, requestedByName: requester?.fullName ?? "Unknown user", assignedRole: approval.assignedRole, waitingMinutes: Math.max(0, Math.floor((Date.now() - approval.requestedAt.getTime()) / 60000)), approvalRound: approval.round, siteId: approval.document?.siteId ?? approval.stockCount?.siteId ?? null }, inventory: approval.document ? { kind: "DOCUMENT", document: { ...approval.document, lines: approval.document.lines.map((line) => ({ ...line, requestedQuantity: decimalString(line.requestedQuantity), approvedQuantity: line.approvedQuantity ? decimalString(line.approvedQuantity) : null, rejectedQuantity: decimalString(line.rejectedQuantity), unitCost: mapCost(line.unitCost, actor), totalAmount: mapCost(line.totalAmount, actor) })) } } : { kind: "STOCK_COUNT", stockCount: { ...approval.stockCount, lines: approval.stockCount?.lines.map((line) => ({ ...line, systemQuantity: decimalString(line.systemQuantity), countedQuantity: line.countedQuantity ? decimalString(line.countedQuantity) : null, varianceQuantity: line.varianceQuantity ? decimalString(line.varianceQuantity) : null, unitCost: mapCost(line.unitCost, actor), varianceAmount: line.varianceAmount ? mapCost(line.varianceAmount, actor) : null })) } }, notification: null, asset: null, attachments: [], history: [], timeline: [], audit: [] };
 }
@@ -782,9 +975,10 @@ export async function inventoryDashboard(actor: Actor) {
   const [activeItems, locations, vendors, balanceAggregate, pendingApprovals, pendingCounts, items] = await Promise.all([
     prisma.stockItem.count({ where: { active: true } }), prisma.inventoryLocation.count({ where: { active: true } }), prisma.vendor.count({ where: { active: true } }), prisma.inventoryBalance.aggregate({ _sum: { quantityOnHand: true } }), prisma.inventoryApproval.count({ where: { status: { in: ["PENDING", "IN_REVIEW"] }, assignedRole: { in: ["MAINTENANCE_MANAGER", "WAREHOUSE_MANAGER", "PLANT_MANAGER"] } } }), prisma.stockCount.count({ where: { status: "PENDING_PLANT_MANAGER" } }), prisma.stockItem.findMany({ where: { active: true }, include: { balances: true }, orderBy: { code: "asc" } }),
   ]);
-  const lowStock = items.map((item) => ({ item, quantity: item.balances.reduce((sum, balance) => sum.plus(balance.quantityOnHand), D(0)) })).filter(({ item, quantity }) => item.reorderPoint && quantity.lte(item.reorderPoint)).slice(0, 10).map(({ item, quantity }) => ({ id: item.id, code: item.code, name: item.name, quantityOnHand: decimalString(quantity), reorderPoint: decimalString(item.reorderPoint!) }));
+  const belowReorderPoint = items.map((item) => ({ item, quantity: item.balances.reduce((sum, balance) => sum.plus(balance.quantityOnHand), D(0)) })).filter(({ item, quantity }) => item.reorderPoint && quantity.lte(item.reorderPoint));
+  const lowStock = belowReorderPoint.slice(0, 10).map(({ item, quantity }) => ({ id: item.id, code: item.code, name: item.name, quantityOnHand: decimalString(quantity), reorderPoint: decimalString(item.reorderPoint!) }));
   const balances = await prisma.inventoryBalance.findMany({ select: { quantityOnHand: true, movingAverageCost: true } }); const value = balances.reduce((sum, balance) => sum.plus(D(balance.quantityOnHand).times(balance.movingAverageCost)), D(0));
-  return { metrics: { activeItems, locations, vendors, pendingApprovals, pendingCounts, inventoryValue: mapCost(value, actor), quantityOnHand: decimalString(balanceAggregate._sum.quantityOnHand) }, lowStock };
+  return { metrics: { activeItems, locations, vendors, pendingApprovals, pendingCounts, lowStockCount: belowReorderPoint.length, inventoryValue: mapCost(value, actor), quantityOnHand: decimalString(balanceAggregate._sum.quantityOnHand) }, lowStock };
 }
 
 export async function getInventoryConfiguration(actor: Actor) {
@@ -815,4 +1009,4 @@ export async function linkInventoryAttachment(documentId: string, attachmentId: 
   });
 }
 
-export const schemas = { inventoryDocumentLineSchema, inventoryDocumentMutationSchema, inventoryListQuerySchema, inventoryLocationMutationSchema, inventoryReceiptSourceQuerySchema, inventoryReportQuerySchema, inventorySettingMutationSchema, stockCountActionSchema, stockCountMutationSchema, stockCountUpdateSchema, stockItemMutationSchema, vendorContactMutationSchema, vendorMutationSchema, vendorRatingMutationSchema };
+export const schemas = { inventoryDocumentLineSchema, inventoryDocumentMutationSchema, inventoryListQuerySchema, inventoryLocationMutationSchema, inventoryReceiptSourceQuerySchema, inventoryReportQuerySchema, inventorySettingMutationSchema, purchaseOrderReceiptMutationSchema, stockCountActionSchema, stockCountMutationSchema, stockCountUpdateSchema, stockItemMutationSchema, vendorContactMutationSchema, vendorMutationSchema, vendorRatingMutationSchema };

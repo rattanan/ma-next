@@ -8,8 +8,8 @@ import { createWorkOrder, listWorkOrders } from "@/lib/work-orders/service";
 export async function GET(request: NextRequest) {
   const meta = getRequestMeta(request);
   try {
-    await requirePermission(request, "VIEW_MAINTENANCE");
-    return Response.json(await listWorkOrders(workOrderListSchema.parse(Object.fromEntries(request.nextUrl.searchParams))));
+    const session = await requirePermission(request, "VIEW_MAINTENANCE");
+    return Response.json(await listWorkOrders(workOrderListSchema.parse(Object.fromEntries(request.nextUrl.searchParams)), session.user));
   } catch (error) { return apiError(error, meta.requestId); }
 }
 

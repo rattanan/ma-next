@@ -101,6 +101,10 @@ export const inventoryDocumentLineSchema = z.object({
   jobStepId: z.string().uuid().optional().nullable(),
   rejectedQuantity: nonNegativeDecimal.optional().default("0"),
   remark: optionalText(10000),
+}).superRefine((line, context) => {
+  if (Number(line.rejectedQuantity ?? "0") > Number(line.requestedQuantity)) {
+    context.addIssue({ code: "custom", path: ["rejectedQuantity"], message: "Rejected quantity cannot exceed received quantity" });
+  }
 });
 
 export const inventoryDocumentMutationSchema = z.object({
@@ -184,5 +188,37 @@ export const inventorySettingMutationSchema = z.object({
   description: optionalText(4000),
 });
 
+export const purchaseOrderReceiptLineSchema = z.object({
+  purchaseOrderLineId: z.string().uuid(),
+  destinationLocationId: z.string().uuid(),
+  receivedQuantity: positiveDecimal,
+  rejectedQuantity: nonNegativeDecimal.default("0"),
+  actualDeliveryDate: dateText.optional().nullable(),
+  remark: optionalText(10000),
+}).superRefine((line, context) => {
+  if (Number(line.rejectedQuantity) > Number(line.receivedQuantity)) {
+    context.addIssue({ code: "custom", path: ["rejectedQuantity"], message: "Rejected quantity cannot exceed delivered quantity" });
+  }
+});
+
+export const purchaseOrderReceiptMutationSchema = z.object({
+  purchaseOrderId: z.string().uuid(),
+  documentDate: dateText,
+  deliveryNoteNumber: optionalText(120),
+  remark: optionalText(10000),
+  lines: z.array(purchaseOrderReceiptLineSchema).min(1).max(500),
+}).superRefine((input, context) => {
+  const ids = input.lines.map((line) => line.purchaseOrderLineId);
+  if (new Set(ids).size !== ids.length) {
+    context.addIssue({ code: "custom", path: ["lines"], message: "A purchase order line may appear only once per receipt" });
+  }
+});
+
+export const purchaseOrderReceiptActionSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("CONFIRM") }),
+  z.object({ action: z.literal("CANCEL"), comment: z.string().trim().max(4000).optional() }),
+]);
+
 export type InventoryDocumentInput = z.infer<typeof inventoryDocumentMutationSchema>;
 export type InventoryDocumentLineInput = z.infer<typeof inventoryDocumentLineSchema>;
+export type PurchaseOrderReceiptInput = z.infer<typeof purchaseOrderReceiptMutationSchema>;

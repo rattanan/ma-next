@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageContainer, PageHeader } from "@/components/shared/page-header";
+import { StatusBadge } from "@/components/shared/status-badge";
 
 export type InventorySection = "dashboard" | "items" | "locations" | "vendors" | "on-hand" | "transactions" | "requests" | "counts" | "approvals" | "movement" | "stock-card" | "configuration";
 type Permissions = string[];
@@ -24,7 +25,6 @@ const labels: Record<string, string> = { ISSUE: "Issue", RECEIPT: "Receipt", TRA
 const label = (value: string) => labels[value] ?? value.replaceAll("_", " ").toLowerCase().replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
 const date = (value: string | null | undefined) => value ? new Date(value).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : "—";
 const money = (value: string | null | undefined) => value === null || value === undefined ? "Restricted" : Number(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const statusTone = (status: string) => status === "POSTED" || status === "APPROVED" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : status === "REJECTED" ? "border-red-200 bg-red-50 text-red-800" : status === "RETURNED" ? "border-amber-200 bg-amber-50 text-amber-900" : "border-blue-200 bg-blue-50 text-blue-800";
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, init); const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error || "Unable to complete the request"); return body as T; }
 function value(form: HTMLFormElement, name: string) { return String(new FormData(form).get(name) ?? "").trim(); }
@@ -32,7 +32,7 @@ function nullable(form: HTMLFormElement, name: string) { return value(form, name
 function jsonInit(body: unknown, method = "POST"): RequestInit { return { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) }; }
 
 function State({ message, retry }: { message: string; retry?: () => void }) { return <div className="grid min-h-48 place-items-center rounded-2xl border border-dashed bg-white p-6 text-center text-sm text-slate-500"><div><PackageSearch className="mx-auto mb-3 size-9 text-slate-400" /><p>{message}</p>{retry && <Button variant="outline" className="mt-4" onClick={retry}><RefreshCw className="size-4" /> Try again</Button>}</div></div>; }
-function Status({ value }: { value: string }) { return <Badge className={statusTone(value)}>{label(value)}</Badge>; }
+function Status({ value }: { value: string }) { return <StatusBadge status={value} />; }
 function TableShell({ children }: { children: React.ReactNode }) { return <div className="overflow-x-auto rounded-2xl border bg-white shadow-sm"><table className="w-full min-w-[52rem] text-left text-sm">{children}</table></div>; }
 function Field({ name, label: fieldLabel, type = "text", required = false, placeholder, defaultValue, children }: { name: string; label: string; type?: string; required?: boolean; placeholder?: string; defaultValue?: string; children?: React.ReactNode }) { return <div><Label htmlFor={name}>{fieldLabel}</Label>{children ?? <Input id={name} name={name} type={type} required={required} placeholder={placeholder} defaultValue={defaultValue} className="mt-1 min-h-10 bg-white" />}</div>; }
 

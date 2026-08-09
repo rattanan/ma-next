@@ -7,8 +7,8 @@ import { getWorkOrderDetail } from "@/lib/maintenance/service";
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const meta = getRequestMeta(request);
   try {
-    await requirePermission(request, "VIEW_MAINTENANCE");
-    const detail = await getWorkOrderDetail((await params).id);
+    const session = await requirePermission(request, "VIEW_MAINTENANCE");
+    const detail = await getWorkOrderDetail((await params).id, session.user);
     if (request.nextUrl.searchParams.get("format") === "json") return Response.json(detail);
     const report = request.nextUrl.searchParams.get("report") ?? "detail";
     const title = report === "tool" ? "Equipment / Tool Loan Form" : report === "material" ? "Material Transaction Form" : "Work Order Detail";

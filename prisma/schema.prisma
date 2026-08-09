@@ -1244,35 +1244,36 @@ model WorkOrderOperatorDecision {
 }
 
 model StockItem {
-  id                String                  @id @default(uuid()) @db.VarChar(36)
-  code              String                  @unique(map: "stock_items_code_uq") @db.VarChar(80)
-  name              String                  @db.VarChar(190)
-  description       String?                 @db.Text
-  category          String?                 @db.VarChar(120)
-  unit              String                  @db.VarChar(45)
-  manufacturer      String?                 @db.VarChar(160)
-  partNumber        String?                 @map("part_number") @db.VarChar(120)
-  barcode           String?                 @db.VarChar(160)
-  minimumStock      Decimal                 @default(0) @map("minimum_stock") @db.Decimal(20, 6)
-  maximumStock      Decimal?                @map("maximum_stock") @db.Decimal(20, 6)
-  reorderPoint      Decimal?                @map("reorder_point") @db.Decimal(20, 6)
-  defaultUnitCost   Decimal                 @default(0) @map("default_unit_cost") @db.Decimal(20, 6)
-  movingAverageCost Decimal                 @default(0) @map("moving_average_cost") @db.Decimal(20, 6)
-  mainLocationId    String?                 @map("main_location_id") @db.VarChar(36)
-  criticalSparePart Boolean                 @default(false) @map("critical_spare_part")
-  active            Boolean                 @default(true)
-  remark            String?                 @db.Text
-  legacySourceId    Int?                    @unique(map: "stock_items_legacy_uq") @map("legacy_source_id")
-  createdAt         DateTime                @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt         DateTime                @updatedAt @map("updated_at") @db.DateTime(3)
-  createdBy         String                  @map("created_by") @db.VarChar(36)
-  updatedBy         String                  @map("updated_by") @db.VarChar(36)
-  mainLocation      InventoryLocation?      @relation("StockItemMainLocation", fields: [mainLocationId], references: [id], onDelete: SetNull)
-  locations         StockItemLocation[]
-  balances          InventoryBalance[]
-  documentLines     InventoryDocumentLine[]
-  movements         InventoryMovement[]
-  countLines        StockCountLine[]
+  id                 String                  @id @default(uuid()) @db.VarChar(36)
+  code               String                  @unique(map: "stock_items_code_uq") @db.VarChar(80)
+  name               String                  @db.VarChar(190)
+  description        String?                 @db.Text
+  category           String?                 @db.VarChar(120)
+  unit               String                  @db.VarChar(45)
+  manufacturer       String?                 @db.VarChar(160)
+  partNumber         String?                 @map("part_number") @db.VarChar(120)
+  barcode            String?                 @db.VarChar(160)
+  minimumStock       Decimal                 @default(0) @map("minimum_stock") @db.Decimal(20, 6)
+  maximumStock       Decimal?                @map("maximum_stock") @db.Decimal(20, 6)
+  reorderPoint       Decimal?                @map("reorder_point") @db.Decimal(20, 6)
+  defaultUnitCost    Decimal                 @default(0) @map("default_unit_cost") @db.Decimal(20, 6)
+  movingAverageCost  Decimal                 @default(0) @map("moving_average_cost") @db.Decimal(20, 6)
+  mainLocationId     String?                 @map("main_location_id") @db.VarChar(36)
+  criticalSparePart  Boolean                 @default(false) @map("critical_spare_part")
+  active             Boolean                 @default(true)
+  remark             String?                 @db.Text
+  legacySourceId     Int?                    @unique(map: "stock_items_legacy_uq") @map("legacy_source_id")
+  createdAt          DateTime                @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt          DateTime                @updatedAt @map("updated_at") @db.DateTime(3)
+  createdBy          String                  @map("created_by") @db.VarChar(36)
+  updatedBy          String                  @map("updated_by") @db.VarChar(36)
+  mainLocation       InventoryLocation?      @relation("StockItemMainLocation", fields: [mainLocationId], references: [id], onDelete: SetNull)
+  locations          StockItemLocation[]
+  balances           InventoryBalance[]
+  documentLines      InventoryDocumentLine[]
+  movements          InventoryMovement[]
+  countLines         StockCountLine[]
+  purchaseOrderLines PurchaseOrderLine[]
 
   @@index([name], map: "stock_items_name_idx")
   @@index([category], map: "stock_items_category_idx")
@@ -1372,6 +1373,7 @@ model Vendor {
   ratingHistory   VendorRatingHistory[]
   documentLines   InventoryDocumentLine[]
   movements       InventoryMovement[]
+  purchaseOrders  PurchaseOrder[]
 
   @@index([name], map: "vendors_name_idx")
   @@index([active], map: "vendors_active_idx")
@@ -1442,6 +1444,7 @@ model InventoryDocument {
   purpose                 String?                       @db.Text
   referenceWorkOrderId    String?                       @map("reference_work_order_id") @db.VarChar(36)
   referenceNotificationId String?                       @map("reference_notification_id") @db.VarChar(36)
+  purchaseOrderId         String?                       @map("purchase_order_id") @db.VarChar(36)
   status                  InventoryDocumentStatus       @default(DRAFT)
   currentApprovalStep     InventoryApprovalStep?        @map("current_approval_step")
   remark                  String?                       @db.Text
@@ -1457,10 +1460,12 @@ model InventoryDocument {
   approvals               InventoryApproval[]
   attachments             InventoryDocumentAttachment[]
   movements               InventoryMovement[]
+  purchaseOrder           PurchaseOrder?                @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
 
   @@index([status, currentApprovalStep], map: "inventory_documents_workflow_idx")
   @@index([requesterId, createdAt], map: "inventory_documents_requester_idx")
   @@index([documentType, documentDate], map: "inventory_documents_type_date_idx")
+  @@index([purchaseOrderId, status], map: "inventory_documents_po_status_idx")
   @@map("inventory_documents")
 }
 
@@ -1485,6 +1490,7 @@ model InventoryDocumentLine {
   workOrderId            String?                 @map("work_order_id") @db.VarChar(36)
   jobStepId              String?                 @map("job_step_id") @db.VarChar(36)
   sourceReceiptLineId    String?                 @map("source_receipt_line_id") @db.VarChar(36)
+  purchaseOrderLineId    String?                 @map("purchase_order_line_id") @db.VarChar(36)
   remark                 String?                 @db.Text
   document               InventoryDocument       @relation(fields: [documentId], references: [id], onDelete: Cascade)
   stockItem              StockItem               @relation(fields: [stockItemId], references: [id])
@@ -1494,11 +1500,13 @@ model InventoryDocumentLine {
   sourceReceiptLine      InventoryDocumentLine?  @relation("InventoryDocumentLineReceiptSource", fields: [sourceReceiptLineId], references: [id], onDelete: SetNull)
   issueLinesFromReceipt  InventoryDocumentLine[] @relation("InventoryDocumentLineReceiptSource")
   sourceReceiptMovements InventoryMovement[]     @relation("InventoryMovementReceiptSource")
+  purchaseOrderLine      PurchaseOrderLine?      @relation(fields: [purchaseOrderLineId], references: [id], onDelete: SetNull)
 
   @@unique([documentId, lineNumber], map: "inventory_document_lines_number_uq")
   @@index([stockItemId], map: "inventory_document_lines_item_idx")
   @@index([purchaseOrderId], map: "inventory_document_lines_purchase_order_idx")
   @@index([sourceReceiptLineId], map: "inventory_document_lines_receipt_source_idx")
+  @@index([purchaseOrderLineId], map: "inventory_document_lines_po_line_idx")
   @@map("inventory_document_lines")
 }
 
@@ -1899,6 +1907,7 @@ model PurchaseOrder {
   vendorNameSnapshot   String              @map("vendor_name_snapshot") @db.VarChar(190)
   creatorId            String              @map("creator_id") @db.VarChar(36)
   departmentId         String              @map("department_id") @db.VarChar(36)
+  siteId               String?             @map("site_id") @db.VarChar(36)
   status               PurchaseOrderStatus @default(DRAFT)
   purchaseMethod       String?             @map("purchase_method") @db.VarChar(80)
   currencyCode         String              @default("THB") @map("currency_code") @db.VarChar(10)
@@ -1913,6 +1922,9 @@ model PurchaseOrder {
   approvedAt           DateTime?           @map("approved_at") @db.DateTime(3)
   issuedAt             DateTime?           @map("issued_at") @db.DateTime(3)
   issuedBy             String?             @map("issued_by") @db.VarChar(36)
+  expectedDeliveryDate DateTime?           @map("expected_delivery_date") @db.DateTime(3)
+  workOrderId          String?             @map("work_order_id") @db.VarChar(36)
+  assetId              String?             @map("asset_id") @db.VarChar(36)
   cycleNumber          Int                 @default(0) @map("cycle_number")
   revisionNumber       Int                 @default(0) @map("revision_number")
   remark               String?             @db.Text
@@ -1921,29 +1933,39 @@ model PurchaseOrder {
   updatedAt            DateTime            @updatedAt @map("updated_at") @db.DateTime(3)
   createdBy            String              @map("created_by") @db.VarChar(36)
   updatedBy            String              @map("updated_by") @db.VarChar(36)
+  vendor               Vendor              @relation(fields: [vendorId], references: [id])
   lines                PurchaseOrderLine[]
+  receipts             InventoryDocument[]
 
   @@index([status, departmentId], map: "purchase_orders_status_department_idx")
   @@index([creatorId, createdAt], map: "purchase_orders_creator_idx")
   @@index([purchaseRequestId], map: "purchase_orders_request_idx")
+  @@index([status, expectedDeliveryDate], map: "purchase_orders_receipt_queue_idx")
   @@map("purchase_orders")
 }
 
 model PurchaseOrderLine {
-  id                 String        @id @default(uuid()) @db.VarChar(36)
-  purchaseOrderId    String        @map("purchase_order_id") @db.VarChar(36)
-  lineNumber         Int           @map("line_number")
-  stockItemId        String        @map("stock_item_id") @db.VarChar(36)
-  stockCodeSnapshot  String        @map("stock_code_snapshot") @db.VarChar(80)
-  description        String        @db.VarChar(255)
-  quantity           Decimal       @db.Decimal(20, 6)
-  unitPrice          Decimal       @map("unit_price") @db.Decimal(20, 6)
-  itemDiscountAmount Decimal       @default(0) @map("item_discount_amount") @db.Decimal(20, 6)
-  lineSubtotal       Decimal       @map("line_subtotal") @db.Decimal(20, 6)
-  lineTotal          Decimal       @map("line_total") @db.Decimal(20, 6)
-  receivedQuantity   Decimal       @default(0) @map("received_quantity") @db.Decimal(20, 6)
-  remark             String?       @db.Text
-  purchaseOrder      PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  id                   String                  @id @default(uuid()) @db.VarChar(36)
+  purchaseOrderId      String                  @map("purchase_order_id") @db.VarChar(36)
+  lineNumber           Int                     @map("line_number")
+  stockItemId          String                  @map("stock_item_id") @db.VarChar(36)
+  stockCodeSnapshot    String                  @map("stock_code_snapshot") @db.VarChar(80)
+  description          String                  @db.VarChar(255)
+  quantity             Decimal                 @db.Decimal(20, 6)
+  unitPrice            Decimal                 @map("unit_price") @db.Decimal(20, 6)
+  itemDiscountAmount   Decimal                 @default(0) @map("item_discount_amount") @db.Decimal(20, 6)
+  lineSubtotal         Decimal                 @map("line_subtotal") @db.Decimal(20, 6)
+  lineTotal            Decimal                 @map("line_total") @db.Decimal(20, 6)
+  receivedQuantity     Decimal                 @default(0) @map("received_quantity") @db.Decimal(20, 6)
+  rejectedQuantity     Decimal                 @default(0) @map("rejected_quantity") @db.Decimal(20, 6)
+  returnedQuantity     Decimal                 @default(0) @map("returned_quantity") @db.Decimal(20, 6)
+  expectedDeliveryDate DateTime?               @map("expected_delivery_date") @db.DateTime(3)
+  workOrderId          String?                 @map("work_order_id") @db.VarChar(36)
+  assetId              String?                 @map("asset_id") @db.VarChar(36)
+  remark               String?                 @db.Text
+  purchaseOrder        PurchaseOrder           @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  stockItem            StockItem               @relation(fields: [stockItemId], references: [id])
+  receiptLines         InventoryDocumentLine[]
 
   @@unique([purchaseOrderId, lineNumber], map: "purchase_order_lines_number_uq")
   @@index([stockItemId], map: "purchase_order_lines_stock_item_idx")

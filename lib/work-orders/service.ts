@@ -2,7 +2,6 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { and, asc, count, desc, eq, gte, like, lt, lte, or } from "drizzle-orm";
 import type { z } from "zod";
 import { db } from "@/lib/db";
-import { prisma } from "@/lib/prisma";
 import {
   assets, auditLogs, workOrderAcceptances, workOrderAssignments, workOrderBacklogEvents, workOrderEvents,
   workOrderTasks, workOrderToolLoans, workOrders, type WorkOrderStatus,
@@ -14,6 +13,8 @@ import { HttpError } from "@/lib/http";
 import { createNotification } from "@/lib/notifications/service";
 import { logger } from "@/lib/logger";
 import { transitionTask, transitionWorkOrder } from "@/lib/maintenance/workflow";
+import { isAdminActor, isTechnicianActor } from "@/lib/maintenance/authorization";
+import { getScopedMaintenanceReferences } from "@/lib/maintenance/reference-data";
 import type { acceptanceSchema, assignmentSchema, backlogSchema, resumeSchema, taskBacklogSchema, taskResumeSchema, toolLoanCommandSchema, toolLoanSchema, workOrderCreateSchema, workOrderListSchema, workOrderUpdateSchema } from "@/lib/maintenance/validation";
 
 type Actor = AuthenticatedUser;
@@ -40,16 +41,30 @@ const audit = (actor: Actor, meta: RequestMeta, action: string, order: { id: str
   ipAddress: meta.ipAddress, userAgent: meta.userAgent, requestId: meta.requestId, createdAt: new Date(),
 });
 
-export async function getWorkOrderCreateReferences() {
-  const [users, departments] = await Promise.all([
-    prisma.user.findMany({ where: { status: "ACTIVE" }, select: { id: true, fullName: true }, orderBy: { fullName: "asc" } }),
-    prisma.department.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-  ]);
-  return { users, departments };
+export async function getWorkOrderCreateReferences(actor: Actor) {
+  const references = await getScopedMaintenanceReferences(actor, "MANAGE_WORK_ORDERS");
+  return {
+    users: references.users.map(({ id, fullName }) => ({ id, fullName })),
+    departments: references.departments.map(({ id, name }) => ({ id, name })),
+  };
 }
 
-export async function listWorkOrders(input: ListInput) {
+export async function listWorkOrders(input: ListInput, actor: Actor) {
   const conditions = [];
+  const globalScope = isAdminActor(actor) || actor.scopes?.some((scope) => scope.scopeType === "GLOBAL");
+  if (!globalScope) {
+    const scopeConditions = (actor.scopes ?? []).map((scope) => {
+      const organizationId = scope.organizationId;
+      const siteId = scope.siteId;
+      const departmentId = scope.departmentId;
+      if (scope.scopeType === "ORGANIZATION" && organizationId) return eq(workOrders.organizationId, organizationId);
+      if (scope.scopeType === "SITE" && organizationId && siteId) return and(eq(workOrders.organizationId, organizationId), eq(workOrders.siteId, siteId));
+      if (scope.scopeType === "DEPARTMENT" && organizationId && siteId && departmentId) return and(eq(workOrders.organizationId, organizationId), eq(workOrders.siteId, siteId), eq(workOrders.departmentId, departmentId));
+      return undefined;
+    }).filter((condition): condition is NonNullable<typeof condition> => Boolean(condition));
+    conditions.push(scopeConditions.length ? or(...scopeConditions)! : eq(workOrders.id, "__NO_AUTHORIZED_SCOPE__"));
+  }
+  if (isTechnicianActor(actor)) conditions.push(or(eq(workOrders.assignedTo, actor.id), eq(workOrders.leadUserId, actor.id), eq(workOrders.createdBy, actor.id))!);
   if (input.q) conditions.push(or(like(workOrders.code, `%${input.q}%`), like(workOrders.title, `%${input.q}%`), like(assets.code, `%${input.q}%`), like(assets.name, `%${input.q}%`))!);
   if (input.type) conditions.push(eq(workOrders.workType, input.type));
   if (input.status) conditions.push(eq(workOrders.status, input.status));

@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { PageContainer, PageHeader } from "@/components/shared/page-header";
+import { statusToneClass } from "@/components/shared/status-badge";
 import { cn } from "@/lib/utils";
 
 type Permission = string;
@@ -23,7 +24,7 @@ const responsibility: Record<string, [string, string]> = {
   DRAFT: ["Operator", "กรอกข้อมูลและส่งใบแจ้ง"], SUBMITTED: ["Maintenance Manager", "เริ่มตรวจสอบ"], UNDER_REVIEW: ["Maintenance Manager", "อนุมัติ ปฏิเสธ หรือส่งกลับแก้ไข"], RETURNED: ["Operator", "แก้ไขและส่งใหม่"], NEEDS_INFORMATION: ["Operator", "ให้ข้อมูลเพิ่มเติม"], APPROVED: ["Maintenance Manager", "สร้างและมอบหมาย Work Order"], CONVERTED_TO_WORK_ORDER: ["Maintenance", "ดำเนินงานซ่อม"], IN_MAINTENANCE: ["Maintenance", "ดำเนินงานซ่อม"], WAITING_FOR_OPERATOR_ACCEPTANCE: ["Operator", "ยอมรับงานหรือขอตรวจซ้ำ"], OPERATOR_REJECTED: ["Maintenance Manager", "ส่งกลับให้ช่างตรวจซ้ำ"], READY_TO_CLOSE: ["Operator", "ปิดใบแจ้ง"],
   CREATED: ["Maintenance Manager", "มอบหมายช่าง"], ASSIGNED: ["Technician", "รับมอบหมาย"], TECHNICIAN_ACCEPTED: ["Technician", "เริ่มงาน"], IN_PROGRESS: ["Technician", "ดำเนินงานและส่งผล"], WAITING_FOR_PARTS: ["Technician", "ดำเนินงานต่อเมื่ออะไหล่พร้อม"], WAITING_FOR_VENDOR: ["Technician", "ดำเนินงานต่อเมื่อผู้รับเหมาพร้อม"], WAITING_FOR_ACCESS: ["Technician", "ดำเนินงานต่อเมื่อเข้าพื้นที่ได้"], ON_HOLD: ["Technician", "แก้เหตุพักงานและดำเนินงานต่อ"], TECHNICIAN_COMPLETED: ["Maintenance Manager", "ตรวจผลการซ่อม"], UNDER_MANAGER_REVIEW: ["Maintenance Manager", "อนุมัติหรือส่งตรวจซ้ำ"], RETURNED_TO_TECHNICIAN: ["Technician", "ตรวจซ้ำและส่ง revision ใหม่"], MANAGER_APPROVED: ["Maintenance Manager", "ขอ Operator ยอมรับงาน"], OPERATOR_ACCEPTED: ["Maintenance Manager", "ปิด Work Order"], CLOSED: ["—", "ปิดแล้ว"], CANCELLED: ["—", "ยกเลิกแล้ว"],
 };
-const statusTone = (status: string) => status === "CLOSED" || status === "OPERATOR_ACCEPTED" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : status.includes("REJECT") || status.includes("RETURN") ? "border-red-200 bg-red-50 text-red-800" : status.includes("WAIT") || status === "ON_HOLD" ? "border-amber-200 bg-amber-50 text-amber-900" : "border-blue-200 bg-blue-50 text-blue-800";
+const statusTone = statusToneClass;
 const label = (value: string) => value.replaceAll("_", " ").toLowerCase().replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
 const age = (value: string) => { const hours = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 3_600_000)); return hours < 24 ? `${hours} ชม.` : `${Math.floor(hours / 24)} วัน`; };
 const attachmentIds = (value?: string | null) => { try { const parsed = JSON.parse(value || "[]"); return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : []; } catch { return []; } };

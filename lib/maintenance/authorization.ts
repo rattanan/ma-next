@@ -8,6 +8,10 @@ export function isAdminActor(actor: Pick<AuthenticatedUser, "role" | "roleCodes"
   return actor.role === "ADMIN" || actor.roleCodes?.includes("ADMIN") === true;
 }
 
+export function isTechnicianActor(actor: Pick<AuthenticatedUser, "role" | "roleCodes">) {
+  return actor.role === "TECHNICIAN" || actor.roleCodes?.includes("TECHNICIAN") === true;
+}
+
 export function requireActorPermission(actor: AuthenticatedUser, permission: Permission) {
   if (!isAdminActor(actor) && !actor.permissions.includes(permission)) throw new HttpError(403, `Missing permission: ${permission}`, "FORBIDDEN");
 }
@@ -34,4 +38,20 @@ export function requireOwnerOrScope(actor: AuthenticatedUser, ownerId: string, r
 
 export function requireAssignedTechnician(actor: AuthenticatedUser, assignedTo?: string | null) {
   if (!assignedTo || assignedTo !== actor.id) throw new HttpError(403, "Only the currently assigned technician may perform this action", "ASSIGNMENT_FORBIDDEN");
+}
+
+export type WorkOrderAccessResource = ResourceScope & {
+  assignedTo?: string | null;
+  leadUserId?: string | null;
+  createdBy?: string | null;
+};
+
+export function canReadWorkOrder(actor: AuthenticatedUser, resource: WorkOrderAccessResource) {
+  if (!canAccessScope(actor, resource, "VIEW_MAINTENANCE")) return false;
+  if (!isTechnicianActor(actor)) return true;
+  return [resource.assignedTo, resource.leadUserId, resource.createdBy].includes(actor.id);
+}
+
+export function requireWorkOrderRead(actor: AuthenticatedUser, resource: WorkOrderAccessResource) {
+  if (!canReadWorkOrder(actor, resource)) throw new HttpError(403, "This work order is outside your authorized scope or assignment", "WORK_ORDER_FORBIDDEN");
 }
