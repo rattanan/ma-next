@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { ArrowLeftRight, Bell, BookOpen, Boxes, Building2, ClipboardCheck, ClipboardList, ClipboardPlus, Database, FileCog, FileText, LayoutDashboard, List, LogOut, MapPin, Menu, PackageSearch, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, Truck, UserRound, Users, Warehouse, Wrench } from "lucide-react";
+import { ArrowLeftRight, Bell, BookOpen, Boxes, Building2, ChevronDown, ClipboardCheck, ClipboardList, ClipboardPlus, Database, FileCog, FileText, LayoutDashboard, List, LogOut, MapPin, Menu, PackageSearch, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, Truck, UserRound, Users, Warehouse, Wrench } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { MaLogo } from "@/components/brand/ma-logo";
 import { Button } from "@/components/ui/button";
@@ -85,17 +85,31 @@ function NavigationLink({ item, active, collapsed, mobile, approvalCount }: { it
 function Navigation({ user, approvalCount, collapsed = false, mobile = false }: { user: ShellUser; approvalCount: number; collapsed?: boolean; mobile?: boolean }) {
   const pathname = usePathname();
   const visibleGroups = navigation.map((group) => ({ ...group, items: group.items.filter((item) => canSee(item, user)) })).filter((group) => group.items.length);
+  const activeGroupLabel = visibleGroups.find((group) => group.items.some((item) => {
+    const exactRoot = ["/inventory", "/maintenance", "/notifications"].includes(item.href);
+    return pathname === item.href || (!exactRoot && pathname.startsWith(`${item.href}/`));
+  }))?.label;
+  const defaultOpenGroup = activeGroupLabel ?? visibleGroups[0]?.label ?? null;
+  const [groupState, setGroupState] = useState<{ pathname: string; openGroup: string | null }>(() => ({ pathname, openGroup: defaultOpenGroup }));
+  const openGroup = groupState.pathname === pathname ? groupState.openGroup : defaultOpenGroup;
+
   return <div className="flex h-full min-h-0 flex-col">
     <Link href="/dashboard" className={cn("flex min-h-20 items-center border-b border-white/10 px-1", collapsed && "justify-center px-0")} aria-label="MA Next dashboard"><MaLogo inverse compact={collapsed} size="sm" /></Link>
-    <nav className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain py-5 pr-1" aria-label="Primary navigation">
-      {visibleGroups.map((group) => <section key={group.label} aria-labelledby={`nav-${group.label.replaceAll(" ", "-").toLowerCase()}`}>
-        {!collapsed && <h2 id={`nav-${group.label.replaceAll(" ", "-").toLowerCase()}`} className="mb-1.5 px-3 text-[10px] font-bold uppercase tracking-[.16em] text-blue-200/55">{group.label}</h2>}
-        <div className="space-y-1">{group.items.map((item) => {
+    <nav className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain py-3 pr-1" aria-label="Primary navigation">
+      {visibleGroups.map((group) => {
+        const groupId = `${mobile ? "mobile" : "desktop"}-nav-${group.label.replaceAll(" ", "-").toLowerCase()}`;
+        const submenuId = `${groupId}-items`;
+        const expanded = collapsed || openGroup === group.label;
+        return <section key={group.label} aria-labelledby={collapsed ? undefined : groupId} aria-label={collapsed ? group.label : undefined}>
+        {!collapsed && <button id={groupId} type="button" className="flex min-h-9 w-full items-center justify-between rounded-lg px-3 text-left text-[10px] font-bold uppercase tracking-[.16em] text-blue-200/65 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300" onClick={() => setGroupState({ pathname, openGroup: openGroup === group.label ? null : group.label })} aria-expanded={expanded} aria-controls={submenuId}>
+          <span>{group.label}</span><ChevronDown className={cn("size-4 transition-transform duration-200 motion-reduce:transition-none", expanded && "rotate-180")} aria-hidden="true" />
+        </button>}
+        <div id={submenuId} hidden={!expanded} className={cn("space-y-1", !collapsed && "mt-1")}>{group.items.map((item) => {
           const exactRoot = ["/inventory", "/maintenance", "/notifications"].includes(item.href);
           const active = pathname === item.href || (!exactRoot && pathname.startsWith(`${item.href}/`));
           return <NavigationLink key={item.href} item={item} active={active} collapsed={collapsed} mobile={mobile} approvalCount={approvalCount} />;
         })}</div>
-      </section>)}
+      </section>})}
     </nav>
     <div className="border-t border-white/10 pt-3"><Link href="/profile" className={cn("block rounded-lg text-blue-100/80 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300", collapsed ? "grid min-h-11 place-items-center" : "px-3 py-2")} title={collapsed ? `${user.fullName} · ${user.role.replaceAll("_", " ")}` : undefined}>{collapsed ? <UserRound className="size-5" /> : <><p className="truncate text-sm font-semibold text-white">{user.fullName}</p><p className="mt-1 truncate text-xs text-blue-100/60">{user.role.replaceAll("_", " ")}</p></>}</Link></div>
   </div>;

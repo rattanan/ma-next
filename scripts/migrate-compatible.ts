@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { createHash, randomUUID } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import mysql from "mysql2/promise";
 
@@ -13,6 +13,12 @@ function compatibleSql(sql: string, version: string) {
     .replaceAll(/CREATE TABLE\s+`[^`]+`\s*\([\s\S]*?\);/gi, (statement) => statement.includes("DEFAULT CHARACTER SET") ? statement : statement.replace(/\);\s*$/, ") ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"));
 }
 
+function migrationChecksums(sql: string) {
+  const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+  const canonical = hash(sql.replaceAll("\r\n", "\n"));
+  return { canonical, accepted: new Set([canonical, hash(sql)]) };
+}
+
 const resumableCodes = new Set(["ER_TABLE_EXISTS_ERROR", "ER_DUP_FIELDNAME", "ER_DUP_KEYNAME", "ER_FK_DUP_NAME"]);
 
 function requestedMigrations() {
@@ -23,8 +29,10 @@ function requestedMigrations() {
 }
 
 async function main() {
-  const uri = process.env.DATABASE_URL;
-  if (!uri) throw new Error("DATABASE_URL is required");
+  const uri = process.env.NODE_ENV === "production"
+    ? process.env.DATABASE_URL
+    : process.env.DEV_DATABASE_URL ?? process.env.DATABASE_URL;
+  if (!uri) throw new Error("DEV_DATABASE_URL or DATABASE_URL is required");
   const connection = await mysql.createConnection({ uri, multipleStatements: true, timezone: "Z" });
   try {
     const [[server]] = await connection.query<mysql.RowDataPacket[]>("SELECT VERSION() version");
@@ -48,7 +56,13 @@ async function main() {
       if (contractTables.length && String(contractTables[0].table_collation) !== "utf8mb4_unicode_ci") await connection.query("ALTER TABLE contracts CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
     }
     const root = resolve("prisma/migrations");
-    const migrations = (await readdir(root, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+    const migrations: string[] = [];
+    for (const entry of await readdir(root, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      try { await access(resolve(root, entry.name, "migration.sql")); migrations.push(entry.name); }
+      catch { /* Ignore empty directories left behind by renamed migrations. */ }
+    }
+    migrations.sort();
     const requested = requestedMigrations();
     const selectedMigrations = requested ? migrations.filter((migrationName) => requested.has(migrationName)) : migrations;
     if (requested) {
@@ -63,10 +77,10 @@ async function main() {
     }
     for (const migrationName of selectedMigrations) {
       const sql = await readFile(resolve(root, migrationName, "migration.sql"), "utf8");
-      const checksum = createHash("sha256").update(sql).digest("hex");
+      const checksums = migrationChecksums(sql);
       const previous = applied.get(migrationName);
       if (previous) {
-        if (String(previous.checksum) !== checksum) throw new Error(`Checksum mismatch for applied migration ${migrationName}`);
+        if (!checksums.accepted.has(String(previous.checksum))) throw new Error(`Checksum mismatch for applied migration ${migrationName}`);
         if (!previous.finished_at) throw new Error(`Migration ${migrationName} is recorded as unfinished`);
         console.log(`Already applied ${migrationName}`);
         continue;
@@ -81,7 +95,7 @@ async function main() {
           console.log(`Skipped already-applied statement (${code})`);
         }
       }
-      await connection.execute("INSERT INTO _prisma_migrations (id, checksum, finished_at, migration_name, started_at, applied_steps_count) VALUES (?, ?, NOW(), ?, NOW(), 1)", [randomUUID(), checksum, migrationName]);
+      await connection.execute("INSERT INTO _prisma_migrations (id, checksum, finished_at, migration_name, started_at, applied_steps_count) VALUES (?, ?, NOW(), ?, NOW(), 1)", [randomUUID(), checksums.canonical, migrationName]);
     }
     console.log(`Database migrations are current (${selectedMigrations.length} targeted, ${migrations.length} available).`);
   } finally {
