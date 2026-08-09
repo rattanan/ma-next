@@ -7,6 +7,8 @@ import { apiError, HttpError } from "@/lib/http";
 import { reviewGovernedNotification } from "@/lib/maintenance/governed-service";
 import { inventoryApprovalActionSchema } from "@/lib/inventory/validation";
 import { reviewInventoryApproval } from "@/lib/inventory/service";
+import { actOnPurchaseApproval } from "@/lib/purchasing/approval-engine";
+import { purchaseApprovalActionSchema } from "@/lib/purchasing/validation";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const meta = getRequestMeta(request);
@@ -15,6 +17,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const session = await requireSession(request);
     const task = await getApprovalTask((await params).id, session.user);
     if (task.approvalType === "INVENTORY") return Response.json(await reviewInventoryApproval(task.id, inventoryApprovalActionSchema.parse(await request.json()), session.user, meta));
+    if (task.approvalType === "PURCHASE_REQUEST" || task.approvalType === "PURCHASE_ORDER") return Response.json(await actOnPurchaseApproval(task.id, purchaseApprovalActionSchema.parse(await request.json()), session.user, meta));
     if (task.approvalType !== "NOTIFICATION") throw new HttpError(501, "This approval type is not actionable yet", "APPROVAL_TYPE_NOT_IMPLEMENTED");
     const input = approvalDecisionSchema.parse(await request.json());
     const review = input.action === "OPEN" ? { action: "START_REVIEW" as const, comment: input.comment ?? "" }

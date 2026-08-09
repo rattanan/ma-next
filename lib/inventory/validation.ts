@@ -94,6 +94,7 @@ export const inventoryDocumentLineSchema = z.object({
   sourceReceiptLineId: z.string().uuid().optional().nullable(),
   vendorId: z.string().uuid().optional().nullable(),
   purchaseOrderReference: optionalText(120),
+  purchaseOrderId: z.string().uuid().optional().nullable(),
   expectedDeliveryDate: dateText.optional().nullable(),
   actualDeliveryDate: dateText.optional().nullable(),
   workOrderId: z.string().uuid().optional().nullable(),

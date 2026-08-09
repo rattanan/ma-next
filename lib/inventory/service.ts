@@ -291,18 +291,21 @@ function lineData(input: InventoryDocumentLineInput, item: { unit: string; defau
   const enteredReceiptAmount = input.receiptAmount !== undefined ? D(input.receiptAmount) : documentType === "RECEIPT" && input.unitCost !== undefined ? quantity.times(D(input.unitCost)) : null;
   const unitCost = enteredReceiptAmount !== null ? enteredReceiptAmount.div(quantity) : input.unitCost !== undefined ? D(input.unitCost) : documentType === "RECEIPT" ? D(item.defaultUnitCost) : D(item.movingAverageCost);
   const totalAmount = documentType === "RECEIPT" && enteredReceiptAmount !== null ? enteredReceiptAmount : quantity.times(unitCost);
-  return { lineNumber, stockItemId: input.stockItemId, sourceLocationId: input.sourceLocationId ?? null, destinationLocationId: input.destinationLocationId ?? null, requestedQuantity: quantity, approvedQuantity: input.approvedQuantity ? D(input.approvedQuantity) : null, rejectedQuantity: D(input.rejectedQuantity ?? "0"), unit: input.unit ?? item.unit, unitCost, totalAmount, vendorId: input.vendorId ?? null, purchaseOrderReference: optionalString(input.purchaseOrderReference), expectedDeliveryDate: asDate(input.expectedDeliveryDate), actualDeliveryDate: asDate(input.actualDeliveryDate), workOrderId: input.workOrderId ?? null, jobStepId: input.jobStepId ?? null, sourceReceiptLineId: input.sourceReceiptLineId ?? null, remark: optionalString(input.remark) };
+  return { lineNumber, stockItemId: input.stockItemId, sourceLocationId: input.sourceLocationId ?? null, destinationLocationId: input.destinationLocationId ?? null, requestedQuantity: quantity, approvedQuantity: input.approvedQuantity ? D(input.approvedQuantity) : null, rejectedQuantity: D(input.rejectedQuantity ?? "0"), unit: input.unit ?? item.unit, unitCost, totalAmount, vendorId: input.vendorId ?? null, purchaseOrderReference: optionalString(input.purchaseOrderReference), purchaseOrderId: input.purchaseOrderId ?? null, expectedDeliveryDate: asDate(input.expectedDeliveryDate), actualDeliveryDate: asDate(input.actualDeliveryDate), workOrderId: input.workOrderId ?? null, jobStepId: input.jobStepId ?? null, sourceReceiptLineId: input.sourceReceiptLineId ?? null, remark: optionalString(input.remark) };
 }
 
 async function validateDocumentLines(tx: Tx, documentType: "ISSUE" | "RECEIPT" | "TRANSFER", lines: InventoryDocumentLineInput[]) {
   const itemIds = [...new Set(lines.map((line) => line.stockItemId))];
   const locationIds = [...new Set(lines.flatMap((line) => [line.sourceLocationId, line.destinationLocationId]).filter((id): id is string => Boolean(id)))];
   const vendorIds = [...new Set(lines.map((line) => line.vendorId).filter((id): id is string => Boolean(id)))];
+  const purchaseOrderIds = [...new Set(lines.map((line) => line.purchaseOrderId).filter((id): id is string => Boolean(id)))];
   const [items, locations, vendors] = await Promise.all([
     tx.stockItem.findMany({ where: { id: { in: itemIds }, active: true } }),
     locationIds.length ? tx.inventoryLocation.findMany({ where: { id: { in: locationIds }, active: true } }) : [],
     vendorIds.length ? tx.vendor.findMany({ where: { id: { in: vendorIds }, active: true } }) : [],
   ]);
+  const purchaseOrders = purchaseOrderIds.length ? await tx.purchaseOrder.findMany({ where: { id: { in: purchaseOrderIds }, status: { in: ["ISSUED", "PARTIAL_RECEIVED"] } }, select: { id: true } }) : [];
+  const purchaseOrderMap = new Set(purchaseOrders.map((order) => order.id));
   const itemMap = new Map(items.map((item) => [item.id, item]));
   const locationMap = new Map(locations.map((location) => [location.id, location]));
   const vendorMap = new Map(vendors.map((vendor) => [vendor.id, vendor]));
@@ -316,6 +319,8 @@ async function validateDocumentLines(tx: Tx, documentType: "ISSUE" | "RECEIPT" |
     if (documentType === "RECEIPT" && line.receiptAmount === undefined && line.unitCost === undefined) throw new HttpError(400, "Receipt lines require an entered amount", "RECEIPT_AMOUNT_REQUIRED");
     if (documentType === "TRANSFER" && (!line.sourceLocationId || !line.destinationLocationId)) throw new HttpError(400, "Transfer lines require source and destination locations", "TRANSFER_LOCATION_REQUIRED");
     if (documentType !== "ISSUE" && line.sourceReceiptLineId) throw new HttpError(400, "Only Issue lines may select a source Receipt", "INVALID_RECEIPT_SOURCE");
+    if (documentType !== "RECEIPT" && line.purchaseOrderId) throw new HttpError(400, "Only Receipt lines may select a Purchase Order", "INVALID_PURCHASE_ORDER_SOURCE");
+    if (documentType === "RECEIPT" && line.purchaseOrderId && !purchaseOrderMap.has(line.purchaseOrderId)) throw new HttpError(409, "Only an Issued Purchase Order may be selected for a Receipt", "PURCHASE_ORDER_NOT_ISSUED");
     if (line.sourceLocationId && line.destinationLocationId && line.sourceLocationId === line.destinationLocationId) throw new HttpError(400, "Source and destination locations must be different", "SAME_LOCATION");
     if (line.sourceLocationId && !locationMap.has(line.sourceLocationId)) throw new HttpError(400, "Source location is not active", "INVALID_SOURCE_LOCATION");
     if (line.destinationLocationId && !locationMap.has(line.destinationLocationId)) throw new HttpError(400, "Destination location is not active", "INVALID_DESTINATION_LOCATION");
@@ -465,6 +470,28 @@ async function resolveIssueReceiptSource(tx: Tx, line: { id: string; stockItemId
   return { receiptLine, unitCost, amount, availableQuantity: receivedQuantity.minus(alreadyIssued) };
 }
 
+async function refreshPurchaseOrderReceiptState(tx: Tx, purchaseOrderId: string, actor: Actor, meta: RequestMeta) {
+  const order = await tx.purchaseOrder.findUnique({ where: { id: purchaseOrderId }, include: { lines: { orderBy: { lineNumber: "asc" } } } });
+  if (!order || ["CANCELLED", "CLOSED"].includes(order.status)) return;
+  const receiptLines = await tx.inventoryDocumentLine.findMany({ where: { purchaseOrderId, document: { documentType: "RECEIPT", status: "POSTED" } }, select: { stockItemId: true, requestedQuantity: true, approvedQuantity: true } });
+  const receivedByItem = new Map<string, Decimal>();
+  for (const line of receiptLines) receivedByItem.set(line.stockItemId, (receivedByItem.get(line.stockItemId) ?? D(0)).plus(line.approvedQuantity ?? line.requestedQuantity));
+  let orderedTotal = D(0); let receivedTotal = D(0);
+  for (const line of order.lines) {
+    const remaining = receivedByItem.get(line.stockItemId) ?? D(0);
+    const received = remaining.gt(line.quantity) ? D(line.quantity) : remaining;
+    receivedByItem.set(line.stockItemId, remaining.minus(received));
+    orderedTotal = orderedTotal.plus(line.quantity);
+    receivedTotal = receivedTotal.plus(received);
+    await tx.purchaseOrderLine.update({ where: { id: line.id }, data: { receivedQuantity: received } });
+  }
+  const nextStatus = receivedTotal.isZero() ? "ISSUED" : receivedTotal.gte(orderedTotal) ? "RECEIVED" : "PARTIAL_RECEIVED";
+  if (nextStatus !== order.status) {
+    await tx.purchaseOrder.update({ where: { id: purchaseOrderId }, data: { status: nextStatus, updatedBy: actor.id } });
+    await writeAudit(tx, { action: "PURCHASE_ORDER_RECEIPT_STATUS_UPDATED", category: "PURCHASING", targetType: "PURCHASE_ORDER", targetId: purchaseOrderId, targetName: order.orderNumber, description: `Updated ${order.orderNumber} receipt status to ${nextStatus}`, previousValues: { status: order.status }, newValues: { status: nextStatus, receivedTotal: decimalString(receivedTotal), orderedTotal: decimalString(orderedTotal) } }, actor, meta);
+  }
+}
+
 export async function postInventoryDocumentTx(tx: Tx, documentId: string, actor: Actor, meta: RequestMeta) {
   const document = await tx.inventoryDocument.findUnique({ where: { id: documentId }, include: { lines: { orderBy: { lineNumber: "asc" } } } });
   if (!document) throw new HttpError(404, "Inventory document not found", "INVENTORY_DOCUMENT_NOT_FOUND");
@@ -492,6 +519,10 @@ export async function postInventoryDocumentTx(tx: Tx, documentId: string, actor:
     }
   }
   const posted = await tx.inventoryDocument.update({ where: { id: documentId }, data: { status: "POSTED", currentApprovalStep: null, postedAt, postedBy: actor.id, postingTransactionId: randomUUID(), updatedBy: actor.id } });
+  if (document.documentType === "RECEIPT") {
+    const purchaseOrderIds = [...new Set(document.lines.map((line) => line.purchaseOrderId).filter((id): id is string => Boolean(id)))];
+    for (const purchaseOrderId of purchaseOrderIds) await refreshPurchaseOrderReceiptState(tx, purchaseOrderId, actor, meta);
+  }
   await writeAudit(tx, { action: "INVENTORY_DOCUMENT_POSTED", category: "INVENTORY", targetType: "INVENTORY_DOCUMENT", targetId: documentId, targetName: document.documentNumber, description: `Posted inventory document ${document.documentNumber}`, previousValues: { status: document.status }, newValues: { status: posted.status, postedAt } }, actor, meta);
   return posted;
 }
@@ -499,7 +530,7 @@ export async function postInventoryDocumentTx(tx: Tx, documentId: string, actor:
 export async function cancelInventoryDocument(id: string, actor: Actor, meta: RequestMeta) {
   requireInventoryPermission(actor, "INVENTORY_POST");
   const result = await prisma.$transaction(async (tx) => {
-    const document = await tx.inventoryDocument.findUnique({ where: { id }, include: { movements: { orderBy: { postedAt: "desc" } } } });
+    const document = await tx.inventoryDocument.findUnique({ where: { id }, include: { movements: { orderBy: { postedAt: "desc" } }, lines: true } });
     if (!document) throw new HttpError(404, "Inventory document not found", "INVENTORY_DOCUMENT_NOT_FOUND");
     if (document.status === "CANCELLED") return document;
     if (["DRAFT", "RETURNED", "REJECTED"].includes(document.status)) {
@@ -524,6 +555,10 @@ export async function cancelInventoryDocument(id: string, actor: Actor, meta: Re
       if (D(movement.quantityOut).gt(0)) await applyIn(tx, balance, D(movement.quantityOut), D(movement.unitCost), "REVERSAL", { ...context, amount: movement.amountOut });
     }
     const cancelled = await tx.inventoryDocument.update({ where: { id }, data: { status: "CANCELLED", currentApprovalStep: null, updatedBy: actor.id } });
+    if (document.documentType === "RECEIPT") {
+      const purchaseOrderIds = [...new Set(document.lines.map((line) => line.purchaseOrderId).filter((purchaseOrderId): purchaseOrderId is string => Boolean(purchaseOrderId)))];
+      for (const purchaseOrderId of purchaseOrderIds) await refreshPurchaseOrderReceiptState(tx, purchaseOrderId, actor, meta);
+    }
     await writeAudit(tx, { action: "INVENTORY_REVERSED", category: "INVENTORY", targetType: "INVENTORY_DOCUMENT", targetId: id, targetName: document.documentNumber, description: `Reversed posted inventory document ${document.documentNumber}`, previousValues: { status: document.status }, newValues: { status: cancelled.status, reversalAt: postedAt } }, actor, meta);
     return cancelled;
   });

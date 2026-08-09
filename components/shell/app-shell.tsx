@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { ArrowLeftRight, Bell, BookOpen, Boxes, Building2, ClipboardCheck, ClipboardList, ClipboardPlus, Database, List, LogOut, MapPin, Menu, PackageSearch, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, Truck, UserRound, Users, Wrench } from "lucide-react";
+import { ArrowLeftRight, Bell, BookOpen, Boxes, Building2, ClipboardCheck, ClipboardList, ClipboardPlus, Database, FileCog, FileText, List, LogOut, MapPin, Menu, PackageSearch, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, Truck, UserRound, Users, Wrench } from "lucide-react";
 import { MaLogo } from "@/components/brand/ma-logo";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -20,6 +20,9 @@ const navigation = [
   { href: "/maintenance", label: "Maintenance", icon: Wrench, permission: "VIEW_MAINTENANCE" },
   { href: "/work-orders", label: "Work Orders", icon: ClipboardList, permission: "VIEW_MAINTENANCE" },
   { href: "/approvals", label: "Approve Center", icon: ClipboardCheck, permission: "VIEW_APPROVAL_CENTER", approvalBadge: true },
+  { href: "/purchase-requests", label: "Purchase Requests", icon: FileText, permission: "PURCHASE_REQUEST_VIEW" },
+  { href: "/purchase-orders", label: "Purchase Orders", icon: FileText, permission: "PURCHASE_ORDER_VIEW" },
+  { href: "/approval-workflows", label: "Approval Workflows", icon: FileCog, permission: "APPROVAL_WORKFLOW_VIEW" },
   { href: "/inventory", label: "Inventory Dashboard", icon: Boxes, permission: "VIEW_INVENTORY" },
   { href: "/inventory/items", label: "Stock Items", icon: PackageSearch, permission: "VIEW_INVENTORY" },
   { href: "/inventory/locations", label: "Storage Locations", icon: MapPin, permission: "VIEW_INVENTORY" },
