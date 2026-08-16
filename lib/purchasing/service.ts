@@ -186,14 +186,13 @@ export async function simulateApprovalRoute(input: z.infer<typeof approvalRouteS
 
 export async function getPurchasingReferenceData(actor: Actor) {
   requirePurchasePermission(actor, "PURCHASE_REQUEST_VIEW");
-  const [departments, vendors, stockItems, approvedRequests, users] = await Promise.all([
+  const [departments, vendors, approvedRequests, users] = await Promise.all([
     prisma.department.findMany({ where: { active: true }, select: { id: true, code: true, name: true }, orderBy: { name: "asc" } }),
     prisma.vendor.findMany({ where: { active: true }, select: { id: true, code: true, name: true }, orderBy: { name: "asc" }, take: 1000 }),
-    prisma.stockItem.findMany({ where: { active: true }, select: { id: true, code: true, name: true, unit: true, defaultUnitCost: true }, orderBy: { code: "asc" }, take: 2000 }),
     prisma.purchaseRequest.findMany({ where: { status: "APPROVED" }, select: { id: true, requestNumber: true, departmentId: true, estimatedTotalAmountThb: true }, orderBy: { approvedAt: "desc" }, take: 500 }),
     prisma.user.findMany({ where: { status: "ACTIVE" }, select: { id: true, username: true, fullName: true }, orderBy: { username: "asc" }, take: 2000 }),
   ]);
-  return { departments, vendors, stockItems: stockItems.map((item) => ({ ...item, defaultUnitCost: decimalString(item.defaultUnitCost) })), approvedRequests: approvedRequests.map((row) => ({ ...row, estimatedTotalAmountThb: decimalString(row.estimatedTotalAmountThb) })), users };
+  return { departments, vendors, approvedRequests: approvedRequests.map((row) => ({ ...row, estimatedTotalAmountThb: decimalString(row.estimatedTotalAmountThb) })), users };
 }
 
 export async function listPurchaseRequests(query: { q: string; status?: string; page: number; pageSize: number }, actor: Actor) {
