@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-export type StockItemOption = { id: string; code: string; name: string; unit: string };
+export type StockItemOption = { id: string; code: string; name: string; unit: string; latestUnitPrice: string | null; latestCurrencyCode: string | null; latestExchangeRateToThb: string | null; latestOrderNumber: string | null };
 
 type Props = {
   id?: string;
@@ -116,7 +116,7 @@ export function StockItemCombobox({ id, name, value, defaultValue = "", onValueC
       {loading ? <Loader2 className="absolute right-3 top-3 size-4 animate-spin text-slate-500" /> : activeSelected && <Button type="button" variant="ghost" size="icon" disabled={disabled} aria-label="ล้าง Item ที่เลือก" className="absolute right-1 top-0.5 size-9" onClick={() => commit(null)}><X className="size-4" /></Button>}
     </div>
     {open && !activeSelected && <div id={listId} role="listbox" className="absolute z-50 mt-1 max-h-72 w-full min-w-64 overflow-auto rounded-xl border bg-white p-1 shadow-xl">
-      {displayedQuery.trim().length < 2 ? <p className="px-3 py-3 text-sm text-slate-500">พิมพ์อย่างน้อย 2 ตัวอักษรเพื่อค้นหา Item</p> : loading ? <p className="px-3 py-3 text-sm text-slate-500">กำลังค้นหา…</p> : items.length ? items.map((item, index) => <button id={`${listId}-${index}`} key={item.id} type="button" role="option" aria-selected={index === activeIndex} className={cn("flex min-h-11 w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm", index === activeIndex ? "bg-blue-50 text-blue-900" : "hover:bg-slate-50")} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActiveIndex(index)} onClick={() => commit(item)}><span className="min-w-0 truncate"><strong>{item.code}</strong> — {item.name}</span><span className="shrink-0 text-xs text-slate-500">{item.unit}</span>{index === activeIndex && <Check className="size-4 shrink-0 text-blue-700" />}</button>) : <p className="px-3 py-3 text-sm text-slate-500">ไม่พบ Item ที่ตรงกับคำค้นหา</p>}
+      {displayedQuery.trim().length < 2 ? <p className="px-3 py-3 text-sm text-slate-500">พิมพ์อย่างน้อย 2 ตัวอักษรเพื่อค้นหา Item</p> : loading ? <p className="px-3 py-3 text-sm text-slate-500">กำลังค้นหา…</p> : items.length ? items.map((item, index) => <button id={`${listId}-${index}`} key={item.id} type="button" role="option" aria-selected={index === activeIndex} className={cn("flex min-h-12 w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm", index === activeIndex ? "bg-blue-50 text-blue-900" : "hover:bg-slate-50")} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActiveIndex(index)} onClick={() => commit(item)}><span className="min-w-0"><strong className="block truncate">{item.code} — {item.name}</strong><span className="block truncate text-xs text-slate-500">{item.latestUnitPrice ? `ราคาล่าสุด ${item.latestCurrencyCode} ${Number(item.latestUnitPrice).toLocaleString()} · ${item.latestOrderNumber}` : "ยังไม่มีประวัติราคา"}</span></span><span className="shrink-0 text-xs text-slate-500">{item.unit}</span>{index === activeIndex && <Check className="size-4 shrink-0 text-blue-700" />}</button>) : <p className="px-3 py-3 text-sm text-slate-500">ไม่พบ Item ที่ตรงกับคำค้นหา</p>}
     </div>}
   </div>;
 }
