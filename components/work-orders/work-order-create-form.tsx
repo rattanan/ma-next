@@ -38,7 +38,7 @@ export default function WorkOrderCreateForm({ permitted }: { permitted: boolean 
     {apiError && <Alert variant="destructive" aria-live="assertive">{apiError}</Alert>}
     <form onSubmit={form.handleSubmit(submit)} className="space-y-5">
       <Section title="Source & work" description="Status is assigned by the workflow and cannot be edited here."><div className="grid gap-4 md:grid-cols-2">
-        <Field label="Source type" error={form.formState.errors.sourceType?.message}><select {...form.register("sourceType")} className="wo-input"><option>MANUAL</option><option>PREVENTIVE_EVENT</option><option>SHUTDOWN_TASK</option><option>IMPORT</option></select></Field>
+        <Field label="Source type" error={form.formState.errors.sourceType?.message}><select {...form.register("sourceType")} className="wo-input"><option>MANUAL</option><option>IMPORT</option></select></Field>
         <Field label="Source record" error={form.formState.errors.sourceRecordId?.message}><Input {...form.register("sourceRecordId")} placeholder="Required for non-manual sources" /></Field>
         <Field label="Work type" error={form.formState.errors.workType?.message}><select {...form.register("workType")} className="wo-input"><option>PREVENTIVE</option><option>CORRECTIVE</option><option>SHUTDOWN</option><option>OTHER_ASSIGNMENT</option></select></Field>
         <Field label="Primary asset" error={form.formState.errors.assetId?.message}><AssetCombobox id="work-order-asset" value={assetId ?? ""} required onValueChange={(nextAssetId) => form.setValue("assetId", nextAssetId, { shouldDirty: true, shouldTouch: true, shouldValidate: true })} /></Field>

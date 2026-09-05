@@ -13,7 +13,8 @@ import { HttpError } from "@/lib/http";
 import { createNotification } from "@/lib/notifications/service";
 import { logger } from "@/lib/logger";
 import { transitionTask, transitionWorkOrder } from "@/lib/maintenance/workflow";
-import { isAdminActor, isTechnicianActor } from "@/lib/maintenance/authorization";
+import { lockPlanningSource, assertPlanningCanStart, syncPlanningSource } from "@/lib/planning/work-order-link";
+import { isAdminActor, isTechnicianActor, requireScope } from "@/lib/maintenance/authorization";
 import { getScopedMaintenanceReferences } from "@/lib/maintenance/reference-data";
 import type { acceptanceSchema, assignmentSchema, backlogSchema, resumeSchema, taskBacklogSchema, taskResumeSchema, toolLoanCommandSchema, toolLoanSchema, workOrderCreateSchema, workOrderListSchema, workOrderUpdateSchema } from "@/lib/maintenance/validation";
 
@@ -94,12 +95,18 @@ export async function listWorkOrders(input: ListInput, actor: Actor) {
 export async function createWorkOrder(input: CreateInput, actor: Actor, meta: RequestMeta) {
   requireActorPermission(actor, "MANAGE_WORK_ORDERS");
   if (input.sourceType === "NOTIFICATION") throw new HttpError(400, "Use the notification review command to create notification work orders", "INVALID_SOURCE_COMMAND");
+  if (["PREVENTIVE_EVENT", "SHUTDOWN_TASK"].includes(input.sourceType)) throw new HttpError(400, "Use the PM generation or project task conversion command", "INVALID_SOURCE_COMMAND");
   const id = randomUUID(); const orderCode = code(); const now = new Date();
   await db.transaction(async (tx) => {
-    const asset = (await tx.select({ status: assets.status }).from(assets).where(eq(assets.id, input.assetId)).limit(1))[0];
+    const asset = (await tx.select({ status: assets.status, organizationId: assets.organizationId, siteId: assets.siteId }).from(assets).where(eq(assets.id, input.assetId)).limit(1))[0];
     if (!asset || asset.status !== "ACTIVE") throw new HttpError(400, "Work order requires an active asset", "INVALID_ASSET");
+    requireScope(actor, { ...asset, departmentId: input.departmentId }, "MANAGE_WORK_ORDERS");
+    const refs = await getScopedMaintenanceReferences(actor, "MANAGE_WORK_ORDERS");
+    if (input.departmentId && !refs.departments.some(d => d.id === input.departmentId && d.organizationId === asset.organizationId && d.siteId === asset.siteId)) throw new HttpError(400, "Department must belong to the asset site", "INVALID_DEPARTMENT");
+    if ([input.assignedTo, input.leadUserId, input.supervisorId].some(id => id && !refs.users.some(u => u.id === id))) throw new HttpError(400, "Responsible user is outside your scope", "INVALID_RESPONSIBLE_USER");
     await tx.insert(workOrders).values({
       id, code: orderCode, notificationId: null, sourceType: input.sourceType, sourceRecordId: input.sourceRecordId ?? null, workType: input.workType,
+      organizationId: asset.organizationId, siteId: asset.siteId,
       assetId: input.assetId, title: input.title, description: input.description, priority: input.priority, severity: input.severity,
       equipmentOperatingStatus: input.equipmentOperatingStatus, status: "OPEN", departmentId: input.departmentId ?? null, crewName: input.crewName ?? null,
       leadUserId: input.leadUserId ?? null, vendorName: input.vendorName ?? null, customerName: input.customerName ?? null,
@@ -119,10 +126,13 @@ export async function createWorkOrder(input: CreateInput, actor: Actor, meta: Re
 export async function updateWorkOrder(id: string, input: UpdateInput, actor: Actor, meta: RequestMeta) {
   requireActorPermission(actor, "MANAGE_WORK_ORDERS"); const now = new Date();
   return db.transaction(async (tx) => {
-    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1))[0];
+    await lockPlanningSource(tx, id);
+    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1).for("update"))[0];
     if (!order) throw new HttpError(404, "Work order not found", "WORK_ORDER_NOT_FOUND");
+    requireScope(actor, order);
     if (["COMPLETION_PENDING", "VERIFIED", "CLOSED"].includes(order.status)) throw new HttpError(409, "Submitted or closed work orders cannot be edited", "WORK_ORDER_LOCKED");
     const { dueAt, reportedAt, plannedStartAt, plannedFinishAt, ...scalarValues } = input;
+    if (["SHUTDOWN_TASK", "PREVENTIVE_EVENT"].includes(order.sourceType)) throw new HttpError(409, "Source-generated planning snapshots cannot be edited through generic WO updates", "SOURCE_SNAPSHOT_LOCKED");
     const values = {
       ...scalarValues,
       ...(dueAt !== undefined ? { dueAt: dateOrNull(dueAt) } : {}),
@@ -142,9 +152,12 @@ export async function updateWorkOrder(id: string, input: UpdateInput, actor: Act
 export async function assignWorkOrder(id: string, input: AssignmentInput, actor: Actor, meta: RequestMeta) {
   requireActorPermission(actor, "MANAGE_WORK_ORDERS"); const now = new Date();
   const result = await db.transaction(async (tx) => {
-    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1))[0];
+    await lockPlanningSource(tx, id);
+    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1).for("update"))[0];
     if (!order) throw new HttpError(404, "Work order not found", "WORK_ORDER_NOT_FOUND");
+    requireScope(actor, order);
     if (["VERIFIED", "CLOSED"].includes(order.status)) throw new HttpError(409, "Verified or closed work cannot be reassigned", "WORK_ORDER_LOCKED");
+    if (["SHUTDOWN_TASK", "PREVENTIVE_EVENT"].includes(order.sourceType)) throw new HttpError(409, "Use the governed assignment workflow for source-generated work", "INVALID_SOURCE_COMMAND");
     await tx.update(workOrderAssignments).set({ endedAt: now }).where(and(eq(workOrderAssignments.workOrderId, id), eq(workOrderAssignments.assignmentType, input.assignmentType)));
     await tx.insert(workOrderAssignments).values({ id: randomUUID(), workOrderId: id, departmentId: input.departmentId ?? null, userId: input.assignedTo, teamName: input.teamName ?? null, positionName: input.positionName ?? null, assignmentType: input.assignmentType, assignedAt: now, assignedBy: actor.id, note: input.note });
     await tx.update(workOrders).set({ departmentId: input.departmentId ?? order.departmentId, assignedTo: input.assignedTo, crewName: input.teamName ?? order.crewName, updatedAt: now, updatedBy: actor.id }).where(eq(workOrders.id, id));
@@ -159,9 +172,12 @@ export async function assignWorkOrder(id: string, input: AssignmentInput, actor:
 export async function backlogWorkOrder(id: string, input: BacklogInput, actor: Actor, meta: RequestMeta) {
   const now = new Date();
   return db.transaction(async (tx) => {
-    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1))[0];
+    await lockPlanningSource(tx, id);
+    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1).for("update"))[0];
     if (!order) throw new HttpError(404, "Work order not found", "WORK_ORDER_NOT_FOUND");
+    requireScope(actor, order);
     const status = transitionWorkOrder(order.status, "BACKLOG", { actor, backlogReason: input.reason });
+    if (["SHUTDOWN_TASK", "PREVENTIVE_EVENT"].includes(order.sourceType)) throw new HttpError(409, "Use the governed waiting-status command", "INVALID_SOURCE_COMMAND");
     await tx.insert(workOrderBacklogEvents).values({ id: randomUUID(), workOrderId: id, scope: "WORK_ORDER", previousStatus: order.status, reasonCode: input.reasonCode ?? null, reason: input.reason, category: input.category ?? null, expectedResumeAt: dateOrNull(input.expectedResumeAt), enteredBy: actor.id, enteredAt: now });
     await tx.update(workOrders).set({ status, backlogReason: input.reason, updatedAt: now, updatedBy: actor.id }).where(and(eq(workOrders.id, id), eq(workOrders.status, order.status)));
     await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: id, eventType: "WORK_ORDER_BACKLOGGED", fromStatus: order.status, toStatus: status, note: input.reason, actorUserId: actor.id, createdAt: now });
@@ -173,8 +189,11 @@ export async function backlogWorkOrder(id: string, input: BacklogInput, actor: A
 export async function resumeWorkOrder(id: string, input: ResumeInput, actor: Actor, meta: RequestMeta) {
   const now = new Date();
   return db.transaction(async (tx) => {
-    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1))[0];
+    await lockPlanningSource(tx, id);
+    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1).for("update"))[0];
     if (!order) throw new HttpError(404, "Work order not found", "WORK_ORDER_NOT_FOUND");
+    requireScope(actor, order);
+    await assertPlanningCanStart(tx, order);
     transitionWorkOrder(order.status, "RESUME", { actor, note: input.resolution });
     const backlog = (await tx.select().from(workOrderBacklogEvents).where(and(eq(workOrderBacklogEvents.workOrderId, id), eq(workOrderBacklogEvents.scope, "WORK_ORDER"))).orderBy(desc(workOrderBacklogEvents.enteredAt)).limit(1))[0];
     if (!backlog || backlog.resumedAt) throw new HttpError(409, "No open backlog event exists", "BACKLOG_NOT_OPEN");
@@ -182,6 +201,7 @@ export async function resumeWorkOrder(id: string, input: ResumeInput, actor: Act
     await tx.update(workOrderBacklogEvents).set({ resumedBy: actor.id, resumedAt: now, resolution: input.resolution }).where(eq(workOrderBacklogEvents.id, backlog.id));
     await tx.update(workOrders).set({ status, backlogReason: null, updatedAt: now, updatedBy: actor.id }).where(and(eq(workOrders.id, id), eq(workOrders.status, "BACKLOG")));
     await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: id, eventType: "WORK_ORDER_RESUMED", fromStatus: "BACKLOG", toStatus: status, note: input.resolution, actorUserId: actor.id, createdAt: now });
+    await syncPlanningSource(tx, id, actor);
     await tx.insert(auditLogs).values(audit(actor, meta, "WORK_ORDER_RESUMED", order, `Resumed ${order.code}`, { status: order.status }, { status, ...input }));
     return { id, status };
   });
@@ -190,7 +210,8 @@ export async function resumeWorkOrder(id: string, input: ResumeInput, actor: Act
 export async function backlogWorkOrderTask(id: string, input: TaskBacklogInput, actor: Actor, meta: RequestMeta) {
   const now = new Date();
   return db.transaction(async (tx) => {
-    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1))[0];
+    await lockPlanningSource(tx, id);
+    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1).for("update"))[0];
     const task = (await tx.select().from(workOrderTasks).where(and(eq(workOrderTasks.id, input.taskId), eq(workOrderTasks.workOrderId, id))).limit(1))[0];
     if (!order || !task) throw new HttpError(404, "Work order task not found", "TASK_NOT_FOUND");
     const status = transitionTask(task.status, "BACKLOG", actor);
@@ -205,7 +226,8 @@ export async function backlogWorkOrderTask(id: string, input: TaskBacklogInput, 
 export async function resumeWorkOrderTask(id: string, input: TaskResumeInput, actor: Actor, meta: RequestMeta) {
   const now = new Date();
   return db.transaction(async (tx) => {
-    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1))[0];
+    await lockPlanningSource(tx, id);
+    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1).for("update"))[0];
     const task = (await tx.select().from(workOrderTasks).where(and(eq(workOrderTasks.id, input.taskId), eq(workOrderTasks.workOrderId, id))).limit(1))[0];
     if (!order || !task) throw new HttpError(404, "Work order task not found", "TASK_NOT_FOUND");
     const status = transitionTask(task.status, "OPEN", actor);
@@ -222,8 +244,10 @@ export async function resumeWorkOrderTask(id: string, input: TaskResumeInput, ac
 export async function addToolLoan(id: string, input: ToolInput, actor: Actor, meta: RequestMeta) {
   requireActorPermission(actor, "MANAGE_WORK_ORDERS"); const now = new Date(); const loanId = randomUUID();
   return db.transaction(async (tx) => {
-    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1))[0];
+    await lockPlanningSource(tx, id);
+    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1).for("update"))[0];
     if (!order) throw new HttpError(404, "Work order not found", "WORK_ORDER_NOT_FOUND");
+    requireScope(actor, order);
     if (["COMPLETION_PENDING", "VERIFIED", "CLOSED"].includes(order.status)) throw new HttpError(409, "Tools cannot be added after completion submission", "WORK_ORDER_LOCKED");
     await tx.insert(workOrderToolLoans).values({ id: loanId, workOrderId: id, toolCode: input.toolCode, toolName: input.toolName, quantity: String(input.quantity), usageCondition: input.usageCondition || null, status: "PLANNED", notes: input.notes || null, createdAt: now, updatedAt: now });
     await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: id, eventType: "TOOL_LOAN_PLANNED", note: `${input.toolCode} × ${input.quantity}`, actorUserId: actor.id, createdAt: now });
@@ -235,9 +259,12 @@ export async function addToolLoan(id: string, input: ToolInput, actor: Actor, me
 export async function commandToolLoan(id: string, input: ToolCommandInput, actor: Actor, meta: RequestMeta) {
   requireActorPermission(actor, "EXECUTE_WORK_ORDERS"); const now = new Date();
   return db.transaction(async (tx) => {
-    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1))[0];
+    await lockPlanningSource(tx, id);
+    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1).for("update"))[0];
     const loan = (await tx.select().from(workOrderToolLoans).where(and(eq(workOrderToolLoans.id, input.loanId), eq(workOrderToolLoans.workOrderId, id))).limit(1))[0];
     if (!order || !loan) throw new HttpError(404, "Work order or tool loan not found", "TOOL_LOAN_NOT_FOUND");
+    requireScope(actor, order);
+    if (input.command === "ISSUE" && ["CLOSED", "CANCELLED"].includes(order.status)) throw new HttpError(409, "Cannot issue tools to terminal work", "WORK_ORDER_LOCKED");
     const allowed = input.command === "ISSUE" ? loan.status === "PLANNED" : input.command === "RETURN" ? loan.status === "ISSUED" : loan.status === "PLANNED";
     if (!allowed) throw new HttpError(409, `Cannot ${input.command.toLowerCase()} a ${loan.status.toLowerCase()} tool loan`, "INVALID_TOOL_TRANSITION");
     const status = input.command === "ISSUE" ? "ISSUED" : input.command === "RETURN" ? "RETURNED" : "CANCELLED";
@@ -251,8 +278,10 @@ export async function commandToolLoan(id: string, input: ToolCommandInput, actor
 export async function recordAcceptance(id: string, input: AcceptanceInput, actor: Actor, meta: RequestMeta) {
   requireActorPermission(actor, "EXECUTE_WORK_ORDERS"); const now = new Date(); const acceptanceId = randomUUID();
   return db.transaction(async (tx) => {
-    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1))[0];
+    await lockPlanningSource(tx, id);
+    const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1).for("update"))[0];
     if (!order) throw new HttpError(404, "Work order not found", "WORK_ORDER_NOT_FOUND");
+    requireScope(actor, order);
     if (order.status !== "IN_PROGRESS") throw new HttpError(409, "Acceptance can only be recorded during execution", "INVALID_WORK_ORDER_STATUS");
     await tx.insert(workOrderAcceptances).values({ id: acceptanceId, workOrderId: id, acceptedAt: new Date(input.acceptedAt), acceptedBy: actor.id, details: input.details, notes: input.notes || null, lotoReference: input.lotoReference || null, isolationPoints: input.isolationPoints || null, permitNumber: input.permitNumber || null, safetyInstructions: input.safetyInstructions || null, hazards: input.hazards || null, operatingConditions: input.operatingConditions || null, logSheetReference: input.logSheetReference || null, testResult: input.testResult || null, handoverDetails: input.handoverDetails || null, attachmentIds: JSON.stringify(input.attachmentIds), createdAt: now });
     await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: id, eventType: "EXECUTION_ACCEPTED", note: input.details, actorUserId: actor.id, createdAt: now });

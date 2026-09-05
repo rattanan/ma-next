@@ -697,6 +697,8 @@ model AssetCategory {
 }
 
 model Asset {
+  organizationId String? @map("organization_id") @db.VarChar(36)
+  siteId String? @map("site_id") @db.VarChar(36)
   id                        String              @id @default(uuid()) @db.VarChar(36)
   code                      String              @unique @db.VarChar(60)
   name                      String              @db.VarChar(160)
@@ -1970,4 +1972,229 @@ model PurchaseOrderLine {
   @@unique([purchaseOrderId, lineNumber], map: "purchase_order_lines_number_uq")
   @@index([stockItemId], map: "purchase_order_lines_stock_item_idx")
   @@map("purchase_order_lines")
+}
+
+// Planning schema
+model PlanningOutbox {
+  id String @id @db.VarChar(36)
+  eventKey String @unique(map: "planning_outbox_event_uq") @map("event_key") @db.VarChar(160)
+  recipientId String @map("recipient_id") @db.VarChar(36)
+  actorId String @map("actor_id") @db.VarChar(36)
+  title String @db.VarChar(190)
+  message String @db.Text
+  actionUrl String @map("action_url") @db.VarChar(500)
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+  deliveredAt DateTime? @map("delivered_at") @db.DateTime(3)
+  @@index([deliveredAt, createdAt], map: "planning_outbox_pending_idx")
+  @@map("planning_outbox")
+}
+
+model PlanningJobRun {
+  id String @id @db.VarChar(36)
+  actorId String @map("actor_id") @db.VarChar(36)
+  mode String @db.VarChar(20)
+  startedAt DateTime @map("started_at") @db.DateTime(3)
+  finishedAt DateTime? @map("finished_at") @db.DateTime(3)
+  status String @db.VarChar(20)
+  result String? @db.LongText
+  @@map("planning_job_runs")
+}
+enum MaintenanceProjectTasksKind {
+  EXECUTION
+  SUMMARY
+  MILESTONE
+}
+
+enum MaintenanceProjectTasksPhase {
+  PREPARATION
+  SHUTDOWN
+  RESTORATION
+}
+
+enum MaintenanceProjectTasksStatus {
+  DRAFT
+  READY
+  WO_CREATED
+  IN_PROGRESS
+  BLOCKED
+  WAITING_COMPLETION
+  COMPLETED
+  CANCELLED
+}
+
+model MaintenanceProjectTasks {
+  id String @id @map("id") @db.VarChar(36)
+  organizationId String @map("organization_id") @db.VarChar(36)
+  siteId String @map("site_id") @db.VarChar(36)
+  departmentId String? @map("department_id") @db.VarChar(36)
+  createdBy String @map("created_by") @db.VarChar(36)
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @map("updated_at") @db.DateTime(3)
+  version Int @default(1) @map("version")
+  projectId String @map("project_id") @db.VarChar(36)
+  parentId String? @map("parent_id") @db.VarChar(36)
+  name String @map("name") @db.VarChar(190)
+  description String @map("description") @db.Text
+  kind MaintenanceProjectTasksKind @map("kind")
+  phase MaintenanceProjectTasksPhase @map("phase")
+  status MaintenanceProjectTasksStatus @default(DRAFT) @map("status")
+  assetId String? @map("asset_id") @db.VarChar(36)
+  assignedTo String? @map("assigned_to") @db.VarChar(36)
+  plannedStartAt DateTime @map("planned_start_at") @db.DateTime(3)
+  plannedFinishAt DateTime @map("planned_finish_at") @db.DateTime(3)
+  estimatedMinutes Int @map("estimated_minutes")
+  workOrderId String? @map("work_order_id") @db.VarChar(36)
+  steps String @map("steps") @db.LongText
+  reason String? @map("reason") @db.Text
+  actualFinishAt DateTime? @map("actual_finish_at") @db.DateTime(3)
+  @@index([projectId, status], map: "project_tasks_project_idx")
+  @@unique([workOrderId], map: "project_tasks_wo_uq")
+  @@map("maintenance_project_tasks")
+}
+
+enum MaintenanceProjectsStatus {
+  DRAFT
+  PLANNED
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  CLOSED
+  CANCELLED
+}
+
+enum MaintenanceProjectsPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model MaintenanceProjects {
+  id String @id @map("id") @db.VarChar(36)
+  organizationId String @map("organization_id") @db.VarChar(36)
+  siteId String @map("site_id") @db.VarChar(36)
+  departmentId String? @map("department_id") @db.VarChar(36)
+  createdBy String @map("created_by") @db.VarChar(36)
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @map("updated_at") @db.DateTime(3)
+  version Int @default(1) @map("version")
+  code String @map("code") @db.VarChar(60)
+  name String @map("name") @db.VarChar(190)
+  description String @map("description") @db.Text
+  ownerId String @map("owner_id") @db.VarChar(36)
+  operatorId String @map("operator_id") @db.VarChar(36)
+  status MaintenanceProjectsStatus @default(DRAFT) @map("status")
+  priority MaintenanceProjectsPriority @default(MEDIUM) @map("priority")
+  plannedStartAt DateTime @map("planned_start_at") @db.DateTime(3)
+  plannedFinishAt DateTime @map("planned_finish_at") @db.DateTime(3)
+  actualFinishAt DateTime? @map("actual_finish_at") @db.DateTime(3)
+  progress Decimal @default("0") @map("progress") @db.Decimal(5,2)
+  closureNote String? @map("closure_note") @db.Text
+  baseline String? @map("baseline") @db.LongText
+  @@unique([organizationId, code], map: "maintenance_projects_code_uq")
+  @@index([organizationId, siteId, status], map: "maintenance_projects_scope_idx")
+  @@map("maintenance_projects")
+}
+
+model MaintenanceTemplates {
+  id String @id @map("id") @db.VarChar(36)
+  organizationId String @map("organization_id") @db.VarChar(36)
+  siteId String @map("site_id") @db.VarChar(36)
+  departmentId String? @map("department_id") @db.VarChar(36)
+  createdBy String @map("created_by") @db.VarChar(36)
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @map("updated_at") @db.DateTime(3)
+  version Int @default(1) @map("version")
+  name String @map("name") @db.VarChar(190)
+  steps String @map("steps") @db.LongText
+  @@map("maintenance_templates")
+}
+
+model PlanningEvents {
+  id String @id @map("id") @db.VarChar(36)
+  organizationId String @map("organization_id") @db.VarChar(36)
+  entityId String @map("entity_id") @db.VarChar(36)
+  entityType String @map("entity_type") @db.VarChar(30)
+  eventType String @map("event_type") @db.VarChar(60)
+  actorId String @map("actor_id") @db.VarChar(36)
+  note String @map("note") @db.Text
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+  @@index([entityId, createdAt], map: "planning_events_entity_idx")
+  @@map("planning_events")
+}
+
+enum PmOccurrencesStatus {
+  GENERATED
+  COMPLETED
+  SKIPPED
+}
+
+model PmOccurrences {
+  id String @id @map("id") @db.VarChar(36)
+  programId String @map("program_id") @db.VarChar(36)
+  organizationId String @map("organization_id") @db.VarChar(36)
+  assetId String @map("asset_id") @db.VarChar(36)
+  scheduledDate String @map("scheduled_date") @db.VarChar(10)
+  scheduledAt DateTime @map("scheduled_at") @db.DateTime(3)
+  status PmOccurrencesStatus @map("status")
+  workOrderId String? @map("work_order_id") @db.VarChar(36)
+  programVersion Int @map("program_version")
+  reason String? @map("reason") @db.Text
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+  completedAt DateTime? @map("completed_at") @db.DateTime(3)
+  @@unique([programId, assetId, scheduledDate], map: "pm_occurrences_schedule_uq")
+  @@unique([workOrderId], map: "pm_occurrences_wo_uq")
+  @@map("pm_occurrences")
+}
+
+enum PreventiveProgramsStatus {
+  ACTIVE
+  PAUSED
+  EXPIRED
+}
+
+enum PreventiveProgramsFrequency {
+  DAY
+  WEEK
+  MONTH
+}
+
+model PreventivePrograms {
+  priority MaintenanceProjectsPriority @default(MEDIUM)
+  estimatedMinutes Int @default(60) @map("estimated_minutes")
+  id String @id @map("id") @db.VarChar(36)
+  organizationId String @map("organization_id") @db.VarChar(36)
+  siteId String @map("site_id") @db.VarChar(36)
+  departmentId String? @map("department_id") @db.VarChar(36)
+  createdBy String @map("created_by") @db.VarChar(36)
+  createdAt DateTime @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @map("updated_at") @db.DateTime(3)
+  version Int @default(1) @map("version")
+  name String @map("name") @db.VarChar(190)
+  assetId String @map("asset_id") @db.VarChar(36)
+  templateId String @map("template_id") @db.VarChar(36)
+  templateVersion Int @map("template_version")
+  steps String @map("steps") @db.LongText
+  assignedTo String @map("assigned_to") @db.VarChar(36)
+  operatorId String @map("operator_id") @db.VarChar(36)
+  status PreventiveProgramsStatus @default(PAUSED) @map("status")
+  startDate String @map("start_date") @db.VarChar(10)
+  expiryDate String @map("expiry_date") @db.VarChar(10)
+  frequency PreventiveProgramsFrequency @map("frequency")
+  interval Int @map("interval_value")
+  timezone String @map("timezone") @db.VarChar(80)
+  localTime String @map("local_time") @db.VarChar(5)
+  leadTimeDays Int @default(0) @map("lead_time_days")
+  @@index([organizationId, siteId, status], map: "preventive_programs_scope_idx")
+  @@map("preventive_programs")
+}
+
+model ProjectTaskDependencies {
+  id String @id @map("id") @db.VarChar(36)
+  projectId String @map("project_id") @db.VarChar(36)
+  predecessorId String @map("predecessor_id") @db.VarChar(36)
+  successorId String @map("successor_id") @db.VarChar(36)
+  @@unique([predecessorId, successorId], map: "project_dependency_uq")
+  @@index([projectId], map: "project_dependency_project_idx")
+  @@map("project_task_dependencies")
 }

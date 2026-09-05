@@ -12,12 +12,15 @@ import type { AuthenticatedUser } from "../auth/session";
 import type { RequestMeta } from "../auth/request";
 import { createNotification as createInAppNotification } from "../notifications/service";
 import { logger } from "../logger";
-import { completeNotification, convertNotificationToWorkOrder, initializeNotification, transitionNotification, transitionTask, transitionWorkOrder, verificationAction } from "./workflow";
+import { convertNotificationToWorkOrder, initializeNotification, transitionNotification, transitionTask, transitionWorkOrder, verificationAction } from "./workflow";
 import type { z } from "zod";
 import type { assetSchema, closeSchema, completionSchema, executionEntrySchema, notificationReviewSchema, notificationSchema, sparePartUsageSchema, taskSchema, taskStatusSchema, verificationSchema } from "./validation";
 import { workOrderInventoryAdapter } from "@/lib/work-orders/inventory-adapter";
-import { canAccessScope, canReadWorkOrder, requireWorkOrderRead } from "./authorization";
+import { canAccessScope, canReadWorkOrder, requireWorkOrderRead, requireScope, requireAssignedTechnician } from "./authorization";
 import { getScopedMaintenanceReferences } from "./reference-data";
+import { lockPlanningSource, assertPlanningCanStart, syncPlanningSource } from "../planning/work-order-link";
+import { closeGovernedWorkOrder } from "./governed-service";
+import { maintenanceProjectTasks, pmOccurrences } from "../db/planning-schema";
 
 type Actor = AuthenticatedUser;
 type AssetInput = z.infer<typeof assetSchema>;
@@ -79,7 +82,15 @@ export async function getWorkOrderDetail(id: string, actor: Actor) {
     db.select().from(workOrderToolLoans).where(eq(workOrderToolLoans.workOrderId, id)).orderBy(desc(workOrderToolLoans.createdAt)),
     db.select().from(workOrderAcceptances).where(eq(workOrderAcceptances.workOrderId, id)).orderBy(desc(workOrderAcceptances.acceptedAt)),
   ]);
-  return { order, tasks, execution, completions, verifications, events, usedSpareParts, assignments, backlogEvents, toolLoans, acceptances };
+  let sourceUrl: string | null = null;
+  if (order.sourceType === "SHUTDOWN_TASK") {
+    const [source] = await db.select({ id: maintenanceProjectTasks.projectId }).from(maintenanceProjectTasks).where(eq(maintenanceProjectTasks.workOrderId, id));
+    if (source) sourceUrl = `/projects/${source.id}`;
+  } else if (order.sourceType === "PREVENTIVE_EVENT") {
+    const [source] = await db.select({ id: pmOccurrences.programId }).from(pmOccurrences).where(eq(pmOccurrences.workOrderId, id));
+    if (source) sourceUrl = `/preventive-maintenance/programs/${source.id}`;
+  }
+  return { order: { ...order, sourceUrl }, tasks, execution, completions, verifications, events, usedSpareParts, assignments, backlogEvents, toolLoans, acceptances };
 }
 
 export async function requireWorkOrderAccess(id: string, actor: Actor) {
@@ -140,7 +151,8 @@ export async function reviewMaintenanceNotification(id: string, input: ReviewInp
 }
 
 async function orderForMutation(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], id: string) {
-  const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1))[0];
+  await lockPlanningSource(tx, id);
+  const order = (await tx.select().from(workOrders).where(eq(workOrders.id, id)).limit(1).for("update"))[0];
   if (!order) throw new HttpError(404, "Work order not found", "WORK_ORDER_NOT_FOUND");
   return order;
 }
@@ -149,8 +161,10 @@ export async function startWorkOrder(id: string, actor: Actor, meta: RequestMeta
   const now = new Date();
   return db.transaction(async (tx) => {
     const order = await orderForMutation(tx, id); const status = transitionWorkOrder(order.status, "START", { actor, assignedTo: order.assignedTo });
+    await assertPlanningCanStart(tx, order);
     await tx.update(workOrders).set({ status, startedAt: order.startedAt ?? now, updatedAt: now, updatedBy: actor.id }).where(eq(workOrders.id, id));
     await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: id, eventType: "WORK_STARTED", fromStatus: order.status, toStatus: status, actorUserId: actor.id, createdAt: now });
+    await syncPlanningSource(tx, id, actor);
     await tx.insert(auditLogs).values(auditRow({ actor, action: "WORK_ORDER_STARTED", category: "MAINTENANCE", targetType: "WORK_ORDER", targetId: id, targetName: order.code, description: `Started ${order.code}`, previousValues: { status: order.status }, newValues: { status }, meta, createdAt: now }));
     return { id, status };
   });
@@ -160,6 +174,7 @@ export async function addWorkOrderTask(id: string, input: TaskInput, actor: Acto
   const now = new Date(); const taskId = randomUUID();
   return db.transaction(async (tx) => {
     const order = await orderForMutation(tx, id);
+    if (["SHUTDOWN_TASK", "PREVENTIVE_EVENT"].includes(order.sourceType)) { requireScope(actor, order, "WORK_ORDER_UPDATE_PROGRESS"); requireAssignedTechnician(actor, order.assignedTo); await assertPlanningCanStart(tx, order); }
     if (!(["OPEN", "BACKLOG", "IN_PROGRESS"] as WorkOrderStatus[]).includes(order.status)) throw new HttpError(409, "Tasks cannot be changed after completion is submitted", "WORK_ORDER_LOCKED");
     const existing = await tx.select({ sequence: workOrderTasks.sequence }).from(workOrderTasks).where(eq(workOrderTasks.workOrderId, id)).orderBy(desc(workOrderTasks.sequence)).limit(1);
     const sequence = (existing[0]?.sequence ?? 0) + 1;
@@ -174,6 +189,7 @@ export async function updateWorkOrderTask(id: string, taskId: string, input: Tas
   const now = new Date();
   return db.transaction(async (tx) => {
     const order = await orderForMutation(tx, id);
+    if (["SHUTDOWN_TASK", "PREVENTIVE_EVENT"].includes(order.sourceType)) { requireScope(actor, order, "WORK_ORDER_UPDATE_PROGRESS"); requireAssignedTechnician(actor, order.assignedTo); await assertPlanningCanStart(tx, order); }
     if (!(["OPEN", "BACKLOG", "IN_PROGRESS"] as WorkOrderStatus[]).includes(order.status)) throw new HttpError(409, "Tasks cannot be changed after completion is submitted", "WORK_ORDER_LOCKED");
     const task = (await tx.select().from(workOrderTasks).where(and(eq(workOrderTasks.id, taskId), eq(workOrderTasks.workOrderId, id))).limit(1))[0];
     if (!task) throw new HttpError(404, "Task not found", "TASK_NOT_FOUND");
@@ -217,6 +233,7 @@ export async function submitCompletion(id: string, input: CompletionInput, actor
   const now = new Date(); const completionId = randomUUID();
   return db.transaction(async (tx) => {
     const order = await orderForMutation(tx, id);
+    if (["SHUTDOWN_TASK", "PREVENTIVE_EVENT"].includes(order.sourceType)) throw new HttpError(409, "Use governed completion revisions for planned work", "INVALID_SOURCE_COMMAND");
     const tasks = await tx.select({ required: workOrderTasks.required, status: workOrderTasks.status }).from(workOrderTasks).where(eq(workOrderTasks.workOrderId, id));
     const status = transitionWorkOrder(order.status, "SUBMIT_COMPLETION", { actor, requiredTasks: tasks });
     await tx.insert(workOrderCompletions).values({ id: completionId, workOrderId: id, result: input.result, problem: input.problem || null, cause: input.cause || null, solution: input.solution, escalation: input.escalation || null, notes: input.notes || null, durationMinutes: input.durationMinutes, beforePhotoAttachmentIds: JSON.stringify(input.beforePhotoAttachmentIds), afterPhotoAttachmentIds: JSON.stringify(input.afterPhotoAttachmentIds), completedBy: actor.id, completedAt: now, createdAt: now });
@@ -231,6 +248,7 @@ export async function verifyCompletion(id: string, input: VerificationInput, act
   const now = new Date();
   return db.transaction(async (tx) => {
     const order = await orderForMutation(tx, id);
+    if (["SHUTDOWN_TASK", "PREVENTIVE_EVENT"].includes(order.sourceType)) throw new HttpError(409, "Use governed manager review for planned work", "INVALID_SOURCE_COMMAND");
     const completion = (await tx.select({ id: workOrderCompletions.id, completedBy: workOrderCompletions.completedBy }).from(workOrderCompletions).where(and(eq(workOrderCompletions.id, input.completionId), eq(workOrderCompletions.workOrderId, id))).limit(1))[0];
     const status = transitionWorkOrder(order.status, verificationAction(input.decision), { actor, completionExists: Boolean(completion), completionOwnerId: completion?.completedBy, note: input.note });
     await tx.insert(workOrderVerifications).values({ id: randomUUID(), workOrderId: id, completionId: input.completionId, decision: input.decision, note: input.note, verifiedBy: actor.id, verifiedAt: now });
@@ -242,17 +260,5 @@ export async function verifyCompletion(id: string, input: VerificationInput, act
 }
 
 export async function closeWorkOrder(id: string, input: CloseInput, actor: Actor, meta: RequestMeta) {
-  const now = new Date();
-  return db.transaction(async (tx) => {
-    const order = await orderForMutation(tx, id); const status = transitionWorkOrder(order.status, "CLOSE", { actor, note: input.note });
-    const issuedTools = await tx.select({ id: workOrderToolLoans.id }).from(workOrderToolLoans).where(and(eq(workOrderToolLoans.workOrderId, id), eq(workOrderToolLoans.status, "ISSUED"))).limit(1);
-    if (issuedTools.length) throw new HttpError(409, "Return all issued tools before closing the work order", "TOOLS_NOT_RETURNED");
-    const notification = order.notificationId ? (await tx.select({ status: maintenanceNotifications.status }).from(maintenanceNotifications).where(eq(maintenanceNotifications.id, order.notificationId)).limit(1))[0] : null;
-    const notificationStatus = notification ? completeNotification(notification.status, actor) : null;
-    await tx.update(workOrders).set({ status, actualFinishAt: order.actualFinishAt ?? now, closedAt: now, updatedAt: now, updatedBy: actor.id }).where(eq(workOrders.id, id));
-    if (notification && notificationStatus && order.notificationId) await tx.update(maintenanceNotifications).set({ status: notificationStatus, completedAt: now, updatedAt: now, updatedBy: actor.id }).where(eq(maintenanceNotifications.id, order.notificationId));
-    await tx.insert(workOrderEvents).values({ id: randomUUID(), workOrderId: id, eventType: "WORK_ORDER_CLOSED", fromStatus: order.status, toStatus: status, note: input.note, actorUserId: actor.id, createdAt: now });
-    await tx.insert(auditLogs).values(auditRow({ actor, action: "WORK_ORDER_CLOSED", category: "MAINTENANCE", targetType: "WORK_ORDER", targetId: id, targetName: order.code, description: `Closed ${order.code}`, previousValues: { status: order.status }, newValues: { status, note: input.note }, meta, createdAt: now }));
-    return { id, status };
-  });
+  return closeGovernedWorkOrder(id, input.note, actor, meta);
 }

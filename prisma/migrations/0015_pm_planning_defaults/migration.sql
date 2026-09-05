@@ -1,0 +1,3 @@
+ALTER TABLE preventive_programs
+  ADD COLUMN priority ENUM('LOW','MEDIUM','HIGH','CRITICAL') NOT NULL DEFAULT 'MEDIUM',
+  ADD COLUMN estimated_minutes INT NOT NULL DEFAULT 60;

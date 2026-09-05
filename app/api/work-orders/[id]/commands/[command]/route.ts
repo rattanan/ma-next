@@ -9,7 +9,7 @@ import { addToolLoan, assignWorkOrder, backlogWorkOrder, backlogWorkOrderTask, c
 
 const permissions: Record<string, Permission> = {
   assign: "MANAGE_WORK_ORDERS", start: "EXECUTE_WORK_ORDERS", backlog: "EXECUTE_WORK_ORDERS", resume: "EXECUTE_WORK_ORDERS",
-  "add-task": "MANAGE_WORK_ORDERS", "task-status": "EXECUTE_WORK_ORDERS", "task-backlog": "EXECUTE_WORK_ORDERS", "task-resume": "EXECUTE_WORK_ORDERS", "time-entry": "EXECUTE_WORK_ORDERS", material: "EXECUTE_WORK_ORDERS",
+  "add-task": "MANAGE_WORK_ORDERS", "task-status": "WORK_ORDER_UPDATE_PROGRESS", "task-backlog": "EXECUTE_WORK_ORDERS", "task-resume": "EXECUTE_WORK_ORDERS", "time-entry": "EXECUTE_WORK_ORDERS", material: "EXECUTE_WORK_ORDERS",
   "add-tool": "MANAGE_WORK_ORDERS", "tool-command": "EXECUTE_WORK_ORDERS", acceptance: "EXECUTE_WORK_ORDERS", completion: "EXECUTE_WORK_ORDERS",
   verification: "VERIFY_WORK_ORDERS", close: "CLOSE_WORK_ORDERS",
 };

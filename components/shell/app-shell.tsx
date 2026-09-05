@@ -7,6 +7,7 @@ import { ArrowLeftRight, Bell, BookOpen, Boxes, Building2, ChevronDown, CircleHe
 import type { LucideIcon } from "lucide-react";
 import { MaLogo } from "@/components/brand/ma-logo";
 import { LanguageSwitcher } from "@/components/i18n/language-switcher";
+import { useLanguage } from "@/components/i18n/language-provider";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,8 @@ const navigation: NavigationGroup[] = [
   { label: "งานซ่อม", items: [
     { href: "/notifications", label: "แจ้งซ่อม", icon: ClipboardPlus, permission: "NOTIFICATION_VIEW" },
     { href: "/work-orders", label: "ใบสั่งงานซ่อม", icon: ClipboardList, permission: "VIEW_MAINTENANCE" },
+    { href: "/projects", label: "Shutdown Projects", icon: ClipboardList, permission: "PROJECT_VIEW" },
+    { href: "/preventive-maintenance/programs", label: "แผน PM", icon: ClipboardCheck, permission: "PM_VIEW" },
     { href: "/maintenance", label: "คิวงานซ่อม", icon: Wrench, permission: "VIEW_MAINTENANCE" },
     { href: "/assets", label: "ทรัพย์สิน", icon: Boxes, permission: "ASSET_READ" },
   ] },
@@ -123,6 +126,7 @@ function Navigation({ user, approvalCount, collapsed = false, mobile = false }: 
 }
 
 export function AppShell({ user, children }: { user: ShellUser; children: React.ReactNode }) {
+  const { t } = useLanguage();
   const router = useRouter();
   const pathname = usePathname();
   const [approvalCount, setApprovalCount] = useState(0);
@@ -135,7 +139,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
 
   async function logout() { await fetch("/api/auth/logout", { method: "POST" }); router.push("/login"); router.refresh(); }
   function toggleSidebar() { window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(!sidebarCollapsed)); window.dispatchEvent(new Event(SIDEBAR_CHANGE_EVENT)); }
-  const department = user.departments.length ? user.departments.join(", ") : "All authorized departments";
+  const department = user.departments.length ? user.departments.join(", ") : t("ทุกหน่วยงานที่ได้รับสิทธิ์", "All authorized departments");
   const contextualHelp = getHelpArticleForRoute(pathname);
 
   return <div className="min-h-screen bg-background text-foreground">
@@ -153,8 +157,8 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
           <LanguageSwitcher className="hidden md:inline-flex" />
           <Button asChild variant="ghost" size="icon" className="size-11" aria-label={contextualHelp ? `เปิดคู่มือหน้า${contextualHelp.title}` : "เปิด Help Center"} title={contextualHelp ? `คู่มือ: ${contextualHelp.title}` : "Help Center"}><Link href={contextualHelp ? `/help/${contextualHelp.slug}` : "/help"}><CircleHelp className="size-5" /></Link></Button>
           {user.permissions.includes("VIEW_APPROVAL_CENTER") && <Button asChild variant="ghost" className="relative hidden min-h-11 gap-2 px-3 sm:flex" aria-label="ศูนย์อนุมัติ"><Link href="/approvals"><ClipboardCheck className="size-4" /><span className="hidden xl:inline">รออนุมัติ</span><ApprovalBadge count={approvalCount} /></Link></Button>}
-          {user.permissions.includes("VIEW_NOTIFICATIONS") && <Button asChild variant="ghost" size="icon" className="relative size-11" aria-label={unreadCount ? `${unreadCount} unread messages` : "No unread messages"}><Link href="/inbox"><Bell className="size-5" />{unreadCount > 0 && <span className="absolute right-0.5 top-0.5 min-w-4 rounded-full bg-red-600 px-1 text-center text-[9px] font-bold leading-4 text-white" aria-hidden="true">{unreadCount > 99 ? "99+" : unreadCount}</span>}</Link></Button>}
-          <Link href="/profile" className="hidden min-w-0 items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 md:flex"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-blue-100 text-sm font-bold text-blue-800">{user.fullName.slice(0, 1).toUpperCase()}</span><span className="min-w-0"><strong className="block max-w-44 truncate text-sm">{user.fullName}</strong><span className="block max-w-52 truncate text-xs text-slate-500">{user.role.replaceAll("_", " ")} · {department}</span></span></Link>
+          {user.permissions.includes("VIEW_NOTIFICATIONS") && <Button data-no-translate asChild variant="ghost" size="icon" className="relative size-11" aria-label={unreadCount ? t(`มีข้อความที่ยังไม่ได้อ่าน ${unreadCount} รายการ`, `${unreadCount} unread messages`) : t("ไม่มีข้อความที่ยังไม่ได้อ่าน", "No unread messages")}><Link href="/inbox"><Bell className="size-5" />{unreadCount > 0 && <span className="absolute right-0.5 top-0.5 min-w-4 rounded-full bg-red-600 px-1 text-center text-[9px] font-bold leading-4 text-white" aria-hidden="true">{unreadCount > 99 ? "99+" : unreadCount}</span>}</Link></Button>}
+          <Link data-no-translate href="/profile" className="hidden min-w-0 items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 md:flex"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-blue-100 text-sm font-bold text-blue-800">{user.fullName.slice(0, 1).toUpperCase()}</span><span className="min-w-0"><strong className="block max-w-44 truncate text-sm">{user.fullName}</strong><span className="block max-w-52 truncate text-xs text-slate-500">{user.role.replaceAll("_", " ")} · {department}</span></span></Link>
           <Button variant="ghost" size="icon" className="size-11" onClick={logout} aria-label="ออกจากระบบ" title="ออกจากระบบ"><LogOut className="size-5" /></Button>
         </div>
       </header>

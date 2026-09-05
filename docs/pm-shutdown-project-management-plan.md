@@ -2,8 +2,11 @@
 
 วันที่จัดทำ: 5 กันยายน 2026  
 ระบบเป้าหมาย: `ma-next`  
-สถานะ: แผนพัฒนา ยังไม่ได้ implement  
+สถานะ: ลงมือพัฒนาแล้วบางส่วน — core workflow ทดสอบบน DEV แล้ว แต่ยังไม่ครบทั้งแผนและยังไม่ deploy ชุดใหม่นี้ขึ้น Production
+
 เป้าหมายหลัก: สร้างแผน PM และบริหาร Shutdown เป็น Project ที่มี Tasks โดย Task สามารถ Convert เป็น Work Order และเมื่อปิด Work Order ระบบอัปเดต Task และสถานะ Project อัตโนมัติ
+
+สถานะลงมือทำและสิ่งที่ยังค้าง: [Implementation status / rollout gates](./pm-shutdown-implementation-status.md) — checklist ด้านล่างถือว่าเสร็จเมื่อครบเกณฑ์ทั้งข้อ ไม่ใช่เพียงมีโค้ดบางส่วน
 
 ## 1 ขอบเขตและหลักฐาน
 
@@ -232,7 +235,7 @@ Source link ควรมี nullable explicit FK `pmOccurrenceId` และ `pro
 - [ ] B3 เพิ่ม hierarchy, milestone และ dependency validation
 - [ ] C1 แยก internal WO creation helper ที่รับ transaction และไม่ข้าม authorization ของ command
 - [ ] C2 Implement conversion พร้อม scope, idempotency, snapshot และ source backlink
-- [ ] C3 ปิด generic create bypass สำหรับ managed PM/Shutdown sources
+- [x] C3 ปิด generic create bypass สำหรับ managed PM/Shutdown sources
 - [ ] D1 เพิ่ม shared source hook ในทั้งสอง close service และ lifecycle commands ที่มีผลต่อ Task
 - [ ] D2 เพิ่ม deterministic lock order, roll-up, concurrent tests และ outbox
 - [ ] D3 เพิ่ม project close/cancel/replan และ policy เมื่อ WO ถูกยกเลิก

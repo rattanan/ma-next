@@ -215,6 +215,8 @@ export const contracts = mysqlTable("contracts", {
 }, (table) => [uniqueIndex("contracts_code_uq").on(table.code), uniqueIndex("contracts_legacy_source_uq").on(table.legacySourceId)]);
 
 export const assets = mysqlTable("assets", {
+  organizationId: varchar("organization_id", { length: 36 }),
+  siteId: varchar("site_id", { length: 36 }),
   id: varchar("id", { length: 36 }).primaryKey(),
   code: varchar("code", { length: 60 }).notNull(),
   name: varchar("name", { length: 160 }).notNull(),
