@@ -23,6 +23,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { MaLogo } from "@/components/brand/ma-logo";
+import { LanguageSwitcher } from "@/components/i18n/language-switcher";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getCurrentSession } from "@/lib/auth/session";
@@ -94,9 +95,12 @@ export default async function LandingPage() {
             <a href="#mobile" className="transition hover:text-blue-700">Web & Mobile</a>
             <a href="#security" className="transition hover:text-blue-700">ความปลอดภัย</a>
           </div>
-          <Button asChild variant="outline" className="border-blue-200 text-blue-900 hover:border-blue-300">
-            <Link href={workspaceHref}>{session ? "เข้าสู่พื้นที่ทำงาน" : "เข้าสู่ระบบ"}<ArrowRight className="size-4" /></Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <LanguageSwitcher className="[&_svg]:hidden sm:[&_svg]:block" />
+            <Button asChild variant="outline" className="hidden border-blue-200 text-blue-900 hover:border-blue-300 sm:inline-flex">
+              <Link href={workspaceHref}>{session ? "เข้าสู่พื้นที่ทำงาน" : "เข้าสู่ระบบ"}<ArrowRight className="size-4" /></Link>
+            </Button>
+          </div>
         </div>
       </nav>
 

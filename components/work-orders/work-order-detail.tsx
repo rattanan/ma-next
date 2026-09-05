@@ -11,6 +11,7 @@ import { ArrowLeft, Download, PauseCircle, Play, Printer, RefreshCw, WifiOff } f
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { FieldHelp } from "@/components/ui/field-help";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PriorityBadge, StatusBadge } from "@/components/shared/status-badge";
@@ -84,7 +85,7 @@ async function uploadEvidence(files: File[], entityType: string, entityId: strin
 function Status({ value }: { value: string }) { return ["LOW", "MEDIUM", "HIGH", "CRITICAL"].includes(value) ? <PriorityBadge priority={value} /> : <StatusBadge status={value} />; }
 function Panel({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) { return <Card className="mt-4"><CardContent className="p-4 md:p-6"><h2 className="text-lg font-bold md:text-xl">{title}</h2>{subtitle && <p className="mt-1 text-sm text-slate-600">{subtitle}</p>}<div className="mt-5">{children}</div></CardContent></Card>; }
 function Fact({ label: name, value, wide }: { label: string; value: ReactNode; wide?: boolean }) { return <div className={wide ? "sm:col-span-2 lg:col-span-4" : ""}><dt className="text-xs font-bold text-slate-500">{name}</dt><dd className="mt-1 whitespace-pre-wrap break-words font-medium">{value}</dd></div>; }
-function FormField({ label: name, children }: { label: string; children: ReactNode }) { return <label className="grid gap-1.5 text-sm font-semibold"><span>{name}</span>{children}</label>; }
+function FormField({ label: name, children }: { label: string; children: ReactNode }) { return <label className="grid gap-1.5 text-sm font-semibold"><span className="inline-flex items-center gap-1.5">{name}<FieldHelp label={name} /></span>{children}</label>; }
 function QuickDialog({ label: name, icon, fields, submit }: { label: string; icon?: ReactNode; fields: ReactNode; submit: (data: FormData) => Promise<unknown> }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);

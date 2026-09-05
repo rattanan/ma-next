@@ -7,6 +7,7 @@ import { Activity, AlertTriangle, ArrowRight, BellRing, Boxes, ClipboardCheck, C
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { FieldHelp } from "@/components/ui/field-help";
 import { PageContainer, PageHeader } from "@/components/shared/page-header";
 import { StatusBadge, humanizeStatus } from "@/components/shared/status-badge";
 import type { DashboardData } from "@/lib/dashboard/service";
@@ -123,7 +124,7 @@ export default function OperationsDashboard({ data }: { data: DashboardData }) {
   </PageContainer>;
 }
 
-function FilterField({ label, children }: { label: string; children: React.ReactNode }) { return <label className="space-y-1.5"><span className="block text-xs font-bold text-slate-600">{label}</span>{children}</label>; }
+function FilterField({ label, children }: { label: string; children: React.ReactNode }) { return <label className="space-y-1.5"><span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600">{label}<FieldHelp label={label} /></span>{children}</label>; }
 function EmptyPanel({ title }: { title: string }) { return <div className="grid min-h-32 place-items-center rounded-lg border border-dashed bg-slate-50 p-6 text-center"><div><ClipboardList className="mx-auto size-7 text-slate-400" /><p className="mt-2 text-sm font-semibold text-slate-600">{title}</p></div></div>; }
 function ActionIcon({ kind }: { kind: string }) {
   const Icon = kind === "APPROVAL" ? ClipboardCheck

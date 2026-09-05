@@ -3,6 +3,7 @@ import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
+import { FieldHelp } from "@/components/ui/field-help";
 import { purchaseEditPayload, type EditablePurchase } from "@/lib/purchasing/edit-payload";
 
 export function PurchaseEditDialog({ kind, id, onSaved }: { kind: "request" | "order"; id: string; onSaved: () => void }) {
@@ -63,4 +64,4 @@ export function PurchaseEditDialog({ kind, id, onSaved }: { kind: "request" | "o
     </Dialog.Content></Dialog.Portal>
   </Dialog.Root>;
 }
-function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="grid min-w-0 gap-1 text-sm font-medium"><span>{label}</span>{children}</label>; }
+function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="grid min-w-0 gap-1 text-sm font-medium"><span className="inline-flex items-center gap-1.5">{label}<FieldHelp label={label} /></span>{children}</label>; }

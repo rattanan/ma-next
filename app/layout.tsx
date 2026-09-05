@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { LanguageProvider } from "@/components/i18n/language-provider";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
@@ -24,7 +25,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="th" className={`${enterpriseFont.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col">{children}<Toaster richColors position="top-right" /></body>
+      <body className="min-h-full flex flex-col"><LanguageProvider>{children}<Toaster richColors position="top-right" /></LanguageProvider></body>
     </html>
   );
 }

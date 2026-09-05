@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { FieldHelp } from "@/components/ui/field-help";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { PageContainer, PageHeader } from "@/components/shared/page-header";
 import { statusToneClass } from "@/components/shared/status-badge";
@@ -171,4 +172,4 @@ function WorkflowCard({ item, kind, currentUser, technicians, permitted, command
   </div></CardContent></Card>;
 }
 function Info({ label: term, value, danger, icon }: { label: string; value: string; danger?: boolean; icon?: React.ReactNode }) { return <div><dt className="mb-1 text-xs text-slate-500">{term}</dt><dd className={cn("flex items-center gap-1 font-medium", danger && "text-red-700")}>{icon}{value}</dd></div>; }
-function Field({ label: text, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) { return <label className={cn("grid gap-1 text-sm font-medium", wide && "md:col-span-2")}><span>{text}</span>{children}</label>; }
+function Field({ label: text, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) { return <label className={cn("grid gap-1 text-sm font-medium", wide && "md:col-span-2")}><span className="inline-flex items-center gap-1.5">{text}<FieldHelp label={text} /></span>{children}</label>; }

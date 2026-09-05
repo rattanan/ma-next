@@ -3,12 +3,15 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { ArrowLeftRight, Bell, BookOpen, Boxes, Building2, ChevronDown, ClipboardCheck, ClipboardList, ClipboardPlus, Database, FileCog, FileText, LayoutDashboard, List, LogOut, MapPin, Menu, PackageSearch, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, Truck, UserRound, Users, Warehouse, Wrench } from "lucide-react";
+import { ArrowLeftRight, Bell, BookOpen, Boxes, Building2, ChevronDown, CircleHelp, ClipboardCheck, ClipboardList, ClipboardPlus, Database, FileCog, FileText, LayoutDashboard, List, LogOut, MapPin, Menu, PackageSearch, PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, Truck, UserRound, Users, Warehouse, Wrench } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { MaLogo } from "@/components/brand/ma-logo";
+import { LanguageSwitcher } from "@/components/i18n/language-switcher";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { getHelpArticleForRoute } from "@/lib/help/articles";
+import ContextualChatbot from "@/components/assistant/contextual-chatbot";
 import { Breadcrumbs } from "./breadcrumbs";
 
 type ShellUser = { fullName: string; username: string; role: string; departments: string[]; permissions: string[] };
@@ -55,6 +58,9 @@ const navigation: NavigationGroup[] = [
   { label: "ดูแลระบบ", items: [
     { href: "/admin/users", label: "ผู้ใช้และสิทธิ์", icon: Users, permission: "MANAGE_USERS" },
     { href: "/admin/audit-logs", label: "ประวัติการเปลี่ยนแปลง", icon: ShieldCheck, permission: "VIEW_AUDIT_LOGS" },
+  ] },
+  { label: "ช่วยเหลือ", items: [
+    { href: "/help", label: "Help Center", icon: CircleHelp },
   ] },
 ];
 
@@ -111,12 +117,14 @@ function Navigation({ user, approvalCount, collapsed = false, mobile = false }: 
         })}</div>
       </section>})}
     </nav>
+    {mobile && <div className="border-t border-white/10 py-3"><LanguageSwitcher inverse className="w-full justify-center" /></div>}
     <div className="border-t border-white/10 pt-3"><Link href="/profile" className={cn("block rounded-lg text-blue-100/80 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300", collapsed ? "grid min-h-11 place-items-center" : "px-3 py-2")} title={collapsed ? `${user.fullName} · ${user.role.replaceAll("_", " ")}` : undefined}>{collapsed ? <UserRound className="size-5" /> : <><p className="truncate text-sm font-semibold text-white">{user.fullName}</p><p className="mt-1 truncate text-xs text-blue-100/60">{user.role.replaceAll("_", " ")}</p></>}</Link></div>
   </div>;
 }
 
 export function AppShell({ user, children }: { user: ShellUser; children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [approvalCount, setApprovalCount] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
   const sidebarCollapsed = useSyncExternalStore(subscribeToSidebarState, getSidebarState, getServerSidebarState);
@@ -128,6 +136,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
   async function logout() { await fetch("/api/auth/logout", { method: "POST" }); router.push("/login"); router.refresh(); }
   function toggleSidebar() { window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(!sidebarCollapsed)); window.dispatchEvent(new Event(SIDEBAR_CHANGE_EVENT)); }
   const department = user.departments.length ? user.departments.join(", ") : "All authorized departments";
+  const contextualHelp = getHelpArticleForRoute(pathname);
 
   return <div className="min-h-screen bg-background text-foreground">
     <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:shadow">ข้ามไปเนื้อหา</a>
@@ -141,6 +150,8 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
         <Link href="/dashboard" className="lg:hidden" aria-label="MA Next dashboard"><MaLogo compact size="sm" /></Link>
         <div className="hidden min-w-0 flex-1 sm:block"><Breadcrumbs /></div>
         <div className="ml-auto flex items-center gap-1 md:gap-2">
+          <LanguageSwitcher className="hidden md:inline-flex" />
+          <Button asChild variant="ghost" size="icon" className="size-11" aria-label={contextualHelp ? `เปิดคู่มือหน้า${contextualHelp.title}` : "เปิด Help Center"} title={contextualHelp ? `คู่มือ: ${contextualHelp.title}` : "Help Center"}><Link href={contextualHelp ? `/help/${contextualHelp.slug}` : "/help"}><CircleHelp className="size-5" /></Link></Button>
           {user.permissions.includes("VIEW_APPROVAL_CENTER") && <Button asChild variant="ghost" className="relative hidden min-h-11 gap-2 px-3 sm:flex" aria-label="ศูนย์อนุมัติ"><Link href="/approvals"><ClipboardCheck className="size-4" /><span className="hidden xl:inline">รออนุมัติ</span><ApprovalBadge count={approvalCount} /></Link></Button>}
           {user.permissions.includes("VIEW_NOTIFICATIONS") && <Button asChild variant="ghost" size="icon" className="relative size-11" aria-label={unreadCount ? `${unreadCount} unread messages` : "No unread messages"}><Link href="/inbox"><Bell className="size-5" />{unreadCount > 0 && <span className="absolute right-0.5 top-0.5 min-w-4 rounded-full bg-red-600 px-1 text-center text-[9px] font-bold leading-4 text-white" aria-hidden="true">{unreadCount > 99 ? "99+" : unreadCount}</span>}</Link></Button>}
           <Link href="/profile" className="hidden min-w-0 items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 md:flex"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-blue-100 text-sm font-bold text-blue-800">{user.fullName.slice(0, 1).toUpperCase()}</span><span className="min-w-0"><strong className="block max-w-44 truncate text-sm">{user.fullName}</strong><span className="block max-w-52 truncate text-xs text-slate-500">{user.role.replaceAll("_", " ")} · {department}</span></span></Link>
@@ -148,6 +159,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
         </div>
       </header>
       <div id="main-content" tabIndex={-1}>{children}</div>
+      <ContextualChatbot key={pathname} />
     </div>
   </div>;
 }

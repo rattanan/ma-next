@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { FieldHelp } from "@/components/ui/field-help";
 import { Skeleton } from "@/components/ui/skeleton";
 
 type Role = "ADMIN" | "DATA_SOURCE_CREATOR" | "DASHBOARD_CREATOR" | "VIEWER" | "OPERATOR" | "MAINTENANCE" | "MAINTENANCE_MANAGER" | "WAREHOUSE_MANAGER" | "PLANT_MANAGER" | "TECHNICIAN";
@@ -46,7 +47,7 @@ function StatusPill({ value }: { value: string }) { return <StatusBadge status={
 function PhotoStrip({ title, ids }: { title: string; ids: string[] }) { if (ids.length === 0) return null; return <div><h4 className="mb-2 text-sm font-bold text-slate-700">{title}</h4><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{ids.map((id) => <a key={id} href={`/api/attachments/${id}/content`} target="_blank" rel="noreferrer" className="overflow-hidden rounded-lg border border-slate-200"><Image unoptimized width={240} height={240} src={`/api/attachments/${id}/content`} alt={`${title} evidence`} className="aspect-square w-full object-cover" /></a>)}</div></div>; }
 
 function Field({ label: fieldLabel, children, hint }: { label: string; children: ReactNode; hint?: string }) {
-  return <label className="maintenance-field"><span>{fieldLabel}</span>{children}{hint && <small>{hint}</small>}</label>;
+  return <label className="maintenance-field"><span className="inline-flex items-center gap-1.5">{fieldLabel}<FieldHelp label={fieldLabel} description={hint} /></span>{children}{hint && <small>{hint}</small>}</label>;
 }
 
 export default function MaintenanceWorkspace() {
