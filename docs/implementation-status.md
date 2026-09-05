@@ -21,3 +21,38 @@ Inventory verification on 2026-08-02: Prisma generation, schema validation, Type
 PO Receipt verification on 2026-08-09: the source profiler resolved the accessible legacy schema as `nexif` (the schema name embedded in `OLD_DATABASE_URL` was not accessible), confirmed zero legacy `pupod010` and `pupod020` rows, and found historical warehouse Receipts but no PO records to link without fabricating source documents. The procurement importer dry-run therefore reconciled 0 source/0 loadable/0 rejected. Migration `0010_purchase_order_receipts` was applied to DEV on MariaDB 5.5.68. Prisma validation, TypeScript, ESLint, 69 automated tests and the Next.js production build passed.
 
 Enterprise UI verification on 2026-08-09: TypeScript and ESLint passed without warnings, 74 automated tests passed with 3 database integration tests skipped, and the Next.js 16 production build generated all 85 routes. Browser checks at 1440×900 and 375×812 confirmed protected Dashboard redirect, labeled login controls, 48 px primary action height, no horizontal overflow, mobile aside suppression, and no console warnings or errors. Signed-in role-by-role browser acceptance remains pending because the current DEV credentials differ from the documented demo defaults.
+
+## UX/UI iteration — 2026-09-05
+
+First local shell/dashboard refinement: Thai navigation and purchasing breadcrumbs, larger mobile header/group controls, token-based sidebar background, shared PageHeader typography/action sizing, action queue ahead of KPI/charts, collapsible dashboard filters, and refresh preserving the current route/query. No workflow or permission changes.
+
+Verification: typecheck, lint and 78 tests passed (3 database integration tests skipped). Production build passed with DEV_DATABASE_URL supplied as DATABASE_URL for the build process only; deployment configuration is still pending. Temporary synthetic-data component preview checked at 375×812 and 1440×900 with no document overflow or observed console errors/warnings; preview route removed afterward. Signed-in role acceptance, real-data filter/refresh validation, and remaining responsive checks are pending. See [UX/UI improvement plan](./ux-ui-improvement-plan.md).
+
+## Work Order list UX — 2026-09-05
+
+Local list refinement adds shared Thai page header, assignment presets, primary/advanced filters, URL-backed search/filter/sort/page/view, validated detail return links and optional scroll restoration. Requests are debounced and aborted on query changes; reference data is fetched on mount/retry. Error/empty states are distinct and board/calendar pagination scope is explicit. Rows/cards show assignee and work type.
+
+Typecheck/lint and 82 tests passed, with 3 integration tests skipped. Synthetic API preview checked at 375/768/1024/1440px with no horizontal document overflow; assignment query, clear, error and empty behavior checked. Temporary preview removed. Real-account permissions, reload/back/scroll and full WO execution acceptance remain pending.
+
+WO list production build also passed with DEV_DATABASE_URL supplied as DATABASE_URL only to the build process. The existing multiple-lockfile warning and deployment environment setup remain open.
+
+## Work Order detail UX — 2026-09-05
+
+Local detail refinement introduces Thai section navigation (mobile select / wrapping desktop tabs), URL section state, mounted panels preserving inputs between sections, and contextual execution shortcuts. Shared QuickForm captures the form before async submission, prevents duplicate submits, retains data on failure, displays local errors/success and resets after success. Browser reload/close warns for dirty forms; internal-link navigation guards remain pending. Backlog/resume dialogs now use Radix focus management. Datetime-local defaults use local calendar fields. Attachment loading failure is separate from an empty list; document upload uses the shared pending/error form.
+
+84 tests passed with 3 database integration tests skipped. Synthetic browser preview checked at 375×812 and 1440×900, including form retention across tabs, failed submission/retry/reset and Escape focus restoration. Preview routes removed. Actual camera/uploads, full role/status acceptance and integration verification remain pending.
+
+Final lint completed without warnings and the production build passed using the process-only DEV database configuration described above. Multiple-lockfile warning remains unchanged.
+
+## Purchasing and approval UX — 2026-09-05
+
+Local PR/PO pages now lead with document lists and collapsible creation forms, labeled line fields, loaded-batch search/status filtering (explicit 100-document limit), vendor search over returned reference data, duplicate-action guards and local form errors. Document inspection reloads on open, preserves zero revision values and wraps long text. Approval center shows purchase amounts, reason/attachments supplied by the API, protects in-flight decisions and retains comments on failure; filtering resets pagination and stale list responses are ignored.
+
+Synthetic UI checked for PR/mobile document inspection and PO/desktop form layout; failed approval decision retained its comment and displayed an error. All temporary fixture routes removed. Full real-account role/action review, server document search, returned-document editing/resubmission and end-to-end procurement acceptance remain pending.
+
+Verification for this purchasing iteration: lint passed without warnings, 84 tests passed (3 integration tests skipped), and production build passed using DEV_DATABASE_URL as DATABASE_URL only for the build process. Existing multiple-lockfile warning remains.
+## Purchasing search and editing update — 2026-09-05
+
+PR/PO now use server search/status filters and 25-row pagination, superseding the earlier loaded-batch limit. Filters reset pagination and obsolete requests are aborted. Session permissions control action visibility. A fresh-read editor supports existing lines in draft/returned documents, preserving reference IDs, vendor order and decimal values; failed saves retain inputs. Adding/removing lines and changing item/vendor references remain pending.
+
+Lint/build passed; 87 tests passed, 3 integration tests skipped. Build used process-only DEV database configuration; multiple-lockfile warning remains. Synthetic mobile QA verified paging, search reset, latest detail loading, failed-save retention and retry success. Temporary routes removed. Real-account permissions, resubmission, procurement integration and concurrent-edit verification remain pending.

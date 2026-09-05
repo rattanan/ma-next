@@ -18,43 +18,43 @@ const SIDEBAR_STORAGE_KEY = "ma-next-sidebar-collapsed";
 const SIDEBAR_CHANGE_EVENT = "ma-sidebar-state-changed";
 
 const navigation: NavigationGroup[] = [
-  { label: "Overview", items: [
-    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, permission: "VIEW_DASHBOARD" },
-    { href: "/approvals", label: "Approval Center", icon: ClipboardCheck, permission: "VIEW_APPROVAL_CENTER", approvalBadge: true },
-    { href: "/inbox", label: "My Inbox", icon: Bell, permission: "VIEW_NOTIFICATIONS" },
+  { label: "ภาพรวม", items: [
+    { href: "/dashboard", label: "ภาพรวมงาน", icon: LayoutDashboard, permission: "VIEW_DASHBOARD" },
+    { href: "/approvals", label: "ศูนย์อนุมัติ", icon: ClipboardCheck, permission: "VIEW_APPROVAL_CENTER", approvalBadge: true },
+    { href: "/inbox", label: "กล่องข้อความ", icon: Bell, permission: "VIEW_NOTIFICATIONS" },
   ] },
-  { label: "Maintenance", items: [
+  { label: "งานซ่อม", items: [
     { href: "/notifications", label: "แจ้งซ่อม", icon: ClipboardPlus, permission: "NOTIFICATION_VIEW" },
-    { href: "/work-orders", label: "Work Orders", icon: ClipboardList, permission: "VIEW_MAINTENANCE" },
-    { href: "/maintenance", label: "Workflow Queue", icon: Wrench, permission: "VIEW_MAINTENANCE" },
-    { href: "/assets", label: "Assets", icon: Boxes, permission: "ASSET_READ" },
+    { href: "/work-orders", label: "ใบสั่งงานซ่อม", icon: ClipboardList, permission: "VIEW_MAINTENANCE" },
+    { href: "/maintenance", label: "คิวงานซ่อม", icon: Wrench, permission: "VIEW_MAINTENANCE" },
+    { href: "/assets", label: "ทรัพย์สิน", icon: Boxes, permission: "ASSET_READ" },
   ] },
-  { label: "Purchasing", items: [
-    { href: "/purchase-requests", label: "Purchase Requests", icon: FileText, permission: "PURCHASE_REQUEST_VIEW" },
-    { href: "/purchase-orders", label: "Purchase Orders", icon: FileText, permission: "PURCHASE_ORDER_VIEW" },
-    { href: "/approval-workflows", label: "Approval Workflows", icon: FileCog, permission: "APPROVAL_WORKFLOW_VIEW" },
+  { label: "จัดซื้อ", items: [
+    { href: "/purchase-requests", label: "ใบขอซื้อ (PR)", icon: FileText, permission: "PURCHASE_REQUEST_VIEW" },
+    { href: "/purchase-orders", label: "ใบสั่งซื้อ (PO)", icon: FileText, permission: "PURCHASE_ORDER_VIEW" },
+    { href: "/approval-workflows", label: "สายอนุมัติ", icon: FileCog, permission: "APPROVAL_WORKFLOW_VIEW" },
   ] },
-  { label: "Inventory", items: [
-    { href: "/inventory", label: "Inventory Overview", icon: Warehouse, permission: "VIEW_INVENTORY" },
-    { href: "/inventory/po-receipts", label: "PO Receipts", icon: ClipboardCheck, permission: "INVENTORY_REQUEST_VIEW" },
-    { href: "/inventory/requests", label: "Requests", icon: ClipboardPlus, permission: "INVENTORY_REQUEST_VIEW" },
-    { href: "/inventory/transactions", label: "Documents", icon: ClipboardList, permission: "INVENTORY_REQUEST_VIEW" },
-    { href: "/inventory/on-hand", label: "Stock On-hand", icon: List, permission: "INVENTORY_REPORT_VIEW" },
-    { href: "/inventory/movement", label: "Stock Movement", icon: ArrowLeftRight, permission: "INVENTORY_REPORT_VIEW" },
-    { href: "/inventory/stock-card", label: "Stock Card", icon: BookOpen, permission: "INVENTORY_REPORT_VIEW" },
-    { href: "/inventory/counts", label: "Stock Count", icon: ClipboardCheck, anyPermissions: ["INVENTORY_COUNT_MANAGE", "INVENTORY_COUNT_REVIEW"] },
+  { label: "คลัง", items: [
+    { href: "/inventory", label: "ภาพรวมคลัง", icon: Warehouse, permission: "VIEW_INVENTORY" },
+    { href: "/inventory/po-receipts", label: "รับของจาก PO", icon: ClipboardCheck, permission: "INVENTORY_REQUEST_VIEW" },
+    { href: "/inventory/requests", label: "คำขอเบิก", icon: ClipboardPlus, permission: "INVENTORY_REQUEST_VIEW" },
+    { href: "/inventory/transactions", label: "เอกสารคลัง", icon: ClipboardList, permission: "INVENTORY_REQUEST_VIEW" },
+    { href: "/inventory/on-hand", label: "ยอดคงเหลือ", icon: List, permission: "INVENTORY_REPORT_VIEW" },
+    { href: "/inventory/movement", label: "ความเคลื่อนไหวสต็อก", icon: ArrowLeftRight, permission: "INVENTORY_REPORT_VIEW" },
+    { href: "/inventory/stock-card", label: "บัตรสต็อก", icon: BookOpen, permission: "INVENTORY_REPORT_VIEW" },
+    { href: "/inventory/counts", label: "ตรวจนับสต็อก", icon: ClipboardCheck, anyPermissions: ["INVENTORY_COUNT_MANAGE", "INVENTORY_COUNT_REVIEW"] },
   ] },
-  { label: "Master Data", items: [
-    { href: "/inventory/items", label: "Stock Items", icon: PackageSearch, permission: "VIEW_INVENTORY" },
-    { href: "/inventory/locations", label: "Locations", icon: MapPin, permission: "VIEW_INVENTORY" },
-    { href: "/inventory/vendors", label: "Vendors", icon: Truck, permission: "VIEW_INVENTORY" },
-    { href: "/organization", label: "Organization", icon: Building2, permission: "VIEW_ORGANIZATION" },
-    { href: "/settings/master-data", label: "System Master Data", icon: Database, permission: "VIEW_MASTER_DATA" },
-    { href: "/inventory/configuration", label: "Inventory Settings", icon: Settings, permission: "INVENTORY_CONFIG_MANAGE" },
+  { label: "ข้อมูลหลัก", items: [
+    { href: "/inventory/items", label: "สินค้าและอะไหล่", icon: PackageSearch, permission: "VIEW_INVENTORY" },
+    { href: "/inventory/locations", label: "สถานที่จัดเก็บ", icon: MapPin, permission: "VIEW_INVENTORY" },
+    { href: "/inventory/vendors", label: "ผู้ขาย", icon: Truck, permission: "VIEW_INVENTORY" },
+    { href: "/organization", label: "โครงสร้างองค์กร", icon: Building2, permission: "VIEW_ORGANIZATION" },
+    { href: "/settings/master-data", label: "ข้อมูลหลักระบบ", icon: Database, permission: "VIEW_MASTER_DATA" },
+    { href: "/inventory/configuration", label: "ตั้งค่าคลัง", icon: Settings, permission: "INVENTORY_CONFIG_MANAGE" },
   ] },
-  { label: "Administration", items: [
-    { href: "/admin/users", label: "Users & Access", icon: Users, permission: "MANAGE_USERS" },
-    { href: "/admin/audit-logs", label: "Audit Log", icon: ShieldCheck, permission: "VIEW_AUDIT_LOGS" },
+  { label: "ดูแลระบบ", items: [
+    { href: "/admin/users", label: "ผู้ใช้และสิทธิ์", icon: Users, permission: "MANAGE_USERS" },
+    { href: "/admin/audit-logs", label: "ประวัติการเปลี่ยนแปลง", icon: ShieldCheck, permission: "VIEW_AUDIT_LOGS" },
   ] },
 ];
 
@@ -101,7 +101,7 @@ function Navigation({ user, approvalCount, collapsed = false, mobile = false }: 
         const submenuId = `${groupId}-items`;
         const expanded = collapsed || openGroup === group.label;
         return <section key={group.label} aria-labelledby={collapsed ? undefined : groupId} aria-label={collapsed ? group.label : undefined}>
-        {!collapsed && <button id={groupId} type="button" className="flex min-h-9 w-full items-center justify-between rounded-lg px-3 text-left text-[10px] font-bold uppercase tracking-[.16em] text-blue-200/65 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300" onClick={() => setGroupState({ pathname, openGroup: openGroup === group.label ? null : group.label })} aria-expanded={expanded} aria-controls={submenuId}>
+        {!collapsed && <button id={groupId} type="button" className="flex min-h-11 w-full items-center justify-between rounded-lg px-3 text-left text-xs font-bold text-blue-100/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300" onClick={() => setGroupState({ pathname, openGroup: openGroup === group.label ? null : group.label })} aria-expanded={expanded} aria-controls={submenuId}>
           <span>{group.label}</span><ChevronDown className={cn("size-4 transition-transform duration-200 motion-reduce:transition-none", expanded && "rotate-180")} aria-hidden="true" />
         </button>}
         <div id={submenuId} hidden={!expanded} className={cn("space-y-1", !collapsed && "mt-1")}>{group.items.map((item) => {
@@ -130,21 +130,21 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
   const department = user.departments.length ? user.departments.join(", ") : "All authorized departments";
 
   return <div className="min-h-screen bg-background text-foreground">
-    <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:shadow">Skip to content</a>
-    <aside className={cn("fixed inset-y-0 left-0 z-30 hidden bg-[#0b2a4a] p-3 text-white transition-[width] duration-200 motion-reduce:transition-none lg:block", sidebarCollapsed ? "w-20" : "w-64")}>
-      <Button type="button" variant="outline" size="icon" className="absolute -right-3 top-6 z-10 size-7 rounded-full border-slate-300 bg-white text-slate-700 shadow-md hover:bg-slate-100" onClick={toggleSidebar} aria-label={sidebarCollapsed ? "Expand side menu" : "Collapse side menu"} title={sidebarCollapsed ? "Expand side menu" : "Collapse side menu"} aria-expanded={!sidebarCollapsed}>{sidebarCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}</Button>
+    <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-lg focus:bg-white focus:px-4 focus:py-2 focus:shadow">ข้ามไปเนื้อหา</a>
+    <aside className={cn("fixed inset-y-0 left-0 z-30 hidden bg-[var(--primary-950)] p-3 text-white transition-[width] duration-200 motion-reduce:transition-none lg:block", sidebarCollapsed ? "w-20" : "w-64")}>
+      <Button type="button" variant="outline" size="icon" className="absolute -right-3 top-6 z-10 size-7 rounded-full border-slate-300 bg-white text-slate-700 shadow-md hover:bg-slate-100" onClick={toggleSidebar} aria-label={sidebarCollapsed ? "ขยายเมนู" : "ย่อเมนู"} title={sidebarCollapsed ? "ขยายเมนู" : "ย่อเมนู"} aria-expanded={!sidebarCollapsed}>{sidebarCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}</Button>
       <Navigation user={user} approvalCount={approvalCount} collapsed={sidebarCollapsed} />
     </aside>
     <div className={cn("transition-[padding-left] duration-200 motion-reduce:transition-none", sidebarCollapsed ? "lg:pl-20" : "lg:pl-64")}>
       <header className="sticky top-0 z-20 flex min-h-16 items-center gap-2 border-b border-slate-200 bg-white/95 px-3 backdrop-blur md:gap-3 md:px-6">
-        <Sheet><SheetTrigger asChild><Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open navigation"><Menu className="size-5" /></Button></SheetTrigger><SheetContent side="left" className="w-[19rem] border-0 bg-[#0b2a4a] p-3 text-white"><SheetTitle className="sr-only">Application navigation</SheetTitle><SheetDescription className="sr-only">Choose a MA maintenance workspace</SheetDescription><Navigation user={user} approvalCount={approvalCount} mobile /></SheetContent></Sheet>
+        <Sheet><SheetTrigger asChild><Button variant="ghost" size="icon" className="size-11 lg:hidden" aria-label="เปิดเมนู"><Menu className="size-5" /></Button></SheetTrigger><SheetContent side="left" className="w-[19rem] border-0 bg-[var(--primary-950)] p-3 text-white"><SheetTitle className="sr-only">Application navigation</SheetTitle><SheetDescription className="sr-only">Choose a MA maintenance workspace</SheetDescription><Navigation user={user} approvalCount={approvalCount} mobile /></SheetContent></Sheet>
         <Link href="/dashboard" className="lg:hidden" aria-label="MA Next dashboard"><MaLogo compact size="sm" /></Link>
         <div className="hidden min-w-0 flex-1 sm:block"><Breadcrumbs /></div>
         <div className="ml-auto flex items-center gap-1 md:gap-2">
-          {user.permissions.includes("VIEW_APPROVAL_CENTER") && <Button asChild variant="ghost" className="relative hidden min-h-10 gap-2 px-3 sm:flex"><Link href="/approvals"><ClipboardCheck className="size-4" /><span className="hidden xl:inline">Approvals</span><ApprovalBadge count={approvalCount} /></Link></Button>}
-          {user.permissions.includes("VIEW_NOTIFICATIONS") && <Button asChild variant="ghost" size="icon" className="relative" aria-label={unreadCount ? `${unreadCount} unread messages` : "No unread messages"}><Link href="/inbox"><Bell className="size-5" />{unreadCount > 0 && <span className="absolute right-0.5 top-0.5 min-w-4 rounded-full bg-red-600 px-1 text-center text-[9px] font-bold leading-4 text-white" aria-hidden="true">{unreadCount > 99 ? "99+" : unreadCount}</span>}</Link></Button>}
+          {user.permissions.includes("VIEW_APPROVAL_CENTER") && <Button asChild variant="ghost" className="relative hidden min-h-11 gap-2 px-3 sm:flex" aria-label="ศูนย์อนุมัติ"><Link href="/approvals"><ClipboardCheck className="size-4" /><span className="hidden xl:inline">รออนุมัติ</span><ApprovalBadge count={approvalCount} /></Link></Button>}
+          {user.permissions.includes("VIEW_NOTIFICATIONS") && <Button asChild variant="ghost" size="icon" className="relative size-11" aria-label={unreadCount ? `${unreadCount} unread messages` : "No unread messages"}><Link href="/inbox"><Bell className="size-5" />{unreadCount > 0 && <span className="absolute right-0.5 top-0.5 min-w-4 rounded-full bg-red-600 px-1 text-center text-[9px] font-bold leading-4 text-white" aria-hidden="true">{unreadCount > 99 ? "99+" : unreadCount}</span>}</Link></Button>}
           <Link href="/profile" className="hidden min-w-0 items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 md:flex"><span className="grid size-9 shrink-0 place-items-center rounded-full bg-blue-100 text-sm font-bold text-blue-800">{user.fullName.slice(0, 1).toUpperCase()}</span><span className="min-w-0"><strong className="block max-w-44 truncate text-sm">{user.fullName}</strong><span className="block max-w-52 truncate text-xs text-slate-500">{user.role.replaceAll("_", " ")} · {department}</span></span></Link>
-          <Button variant="ghost" size="icon" onClick={logout} aria-label="Sign out" title="Sign out"><LogOut className="size-5" /></Button>
+          <Button variant="ghost" size="icon" className="size-11" onClick={logout} aria-label="ออกจากระบบ" title="ออกจากระบบ"><LogOut className="size-5" /></Button>
         </div>
       </header>
       <div id="main-content" tabIndex={-1}>{children}</div>

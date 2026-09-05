@@ -1,4 +1,4 @@
 import { PurchaseOrderWorkspace } from "@/components/purchasing/purchasing-workspace";
 import { ProtectedShell } from "@/components/shell/protected-shell";
-
-export default function Page() { return <ProtectedShell permission="PURCHASE_ORDER_VIEW"><PurchaseOrderWorkspace /></ProtectedShell>; }
+import { getCurrentSession } from "@/lib/auth/session";
+export default async function Page() { const session = await getCurrentSession(); const user = session?.user; return <ProtectedShell permission="PURCHASE_ORDER_VIEW"><PurchaseOrderWorkspace permissions={user?.permissions ?? []} isAdmin={user?.role === "ADMIN" || user?.roleCodes?.includes("ADMIN") === true} /></ProtectedShell>; }

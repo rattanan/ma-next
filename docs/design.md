@@ -618,3 +618,14 @@ Route groupsเป็นข้อเสนอ; ก่อนย้ายต้อ
 - Tahoma local fontรองรับปัจจุบัน แต่ font familyที่เสนอคือ Noto Sans Thai; ต้องกำหนดวิธี self-host/licensing/performanceก่อนเปลี่ยน
 - `app/globals.css` มี tokenม่วง, maintenanceเขียว และ slate/blue utilityพร้อมกัน ต้อง consolidateโดยมี compatibility window
 - role labels `DASHBOARD_CREATOR` และ `DATA_SOURCE_CREATOR` ไม่สอดคล้อง maintenance persona แต่เป็น business/auth identifiersปัจจุบัน ห้าม renameจากงาน UI; แสดง friendly labelได้ผ่าน approved map
+
+## UX iteration alignment — 2026-09-05
+
+The shell/dashboard and Work Order list now share PageHeader and Thai navigation labels. Dashboard action queues precede KPI/charts; filters are collapsible. WO lists expose search/status/priority first, with type/department/assignee in advanced filters, URL-backed filter/page/view state and scoped return links from details. Assignment presets mean exact assignedTo matching, not a new role or workflow. Mobile/tablet use cards; desktop tables retain work type and add assignee. See ux-ui-improvement-plan.md for verification limits and pending real-user acceptance.
+
+WO detail now uses a mobile section selector and wrapping desktop tabs with retained form state. The status badge and history carry lifecycle information; the former five-step illustration was removed because it did not represent all stored statuses. Shared async forms show pending/error/success locally and workflow dialogs use Radix focus management. These presentation changes do not replace server workflow validation.
+
+Purchasing list-first layout: creation forms are disclosed from the header, line inputs carry visible labels, and inspection refreshes saved data each time it opens. Loaded-batch filtering explicitly states its 100-document scope. Approval summaries emphasize purchase amounts and keep decision controls disabled while submitting, preserving entered comments on failure.
+## Purchasing interaction update — 2026-09-05
+
+Server search and 25-row pagination supersede the previous loaded-batch filter. Draft/returned documents offer an existing-line editor with fresh loading, input retention on failure and save-as-draft feedback. Action visibility follows session permissions; lifecycle and authorization remain server responsibilities.
